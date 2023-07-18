@@ -1,4 +1,4 @@
-package main
+package collector
 
 // Default error struct, which other erros will reuse.
 // type DefaultError struct {
