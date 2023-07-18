@@ -12,15 +12,16 @@ import (
 // be committed.
 func TestGetRawValuesFromSymbolAPI(t *testing.T) {
 	var symbols = []string{"BTC", "ADA", "AIR", "ETH", "SLR"}
-	apiKey, err := getApiKey("../apikey.txt")
+
+	c, err := NewCollector("../crypto.sqlite", "../apikey.txt", "https://www.alphavantage.co/query?function=DIGITAL_CURRENCY_WEEKLY&symbol=%s&market=EUR&apikey=%s", "../digital_currency_list.csv", ReadCurrencyList)
 	if err != nil {
-		t.Log("error loading the apikey.txt", err)
-		t.FailNow()
+		t.Log("unable to create  collector")
+		t.Fail()
 	}
 
 	for _, symbol := range symbols {
 		t.Logf("Retrieving value for %v", symbol)
-		_, err := GetRawValuesFromSymbolAPI(symbol, apiKey, "https://www.alphavantage.co/query?function=DIGITAL_CURRENCY_WEEKLY&symbol=%s&market=EUR&apikey=%s")
+		_, err := c.GetRawValuesFromSymbolAPI(symbol)
 
 		if err != nil {
 			switch err.(type) {
@@ -64,13 +65,13 @@ func TestGetApiKey(t *testing.T) {
 // Tests that the list of currencies can be properly loaded, and contain
 // the expected amount of data.
 func TestReadCurrencyList(t *testing.T) {
-	_, err := readCurrencyList("non_existing_csv.csv")
+	_, err := ReadCurrencyList("non_existing_csv.csv")
 	if err == nil {
 		t.Log("Non error returned when non existing file")
 		t.Fail()
 	}
 
-	records, err := readCurrencyList("../digital_currency_list.csv")
+	records, err := ReadCurrencyList("../digital_currency_list.csv")
 	if err != nil {
 		t.Log(err.Error())
 		t.Fail()
@@ -255,6 +256,32 @@ func TestStoreData(t *testing.T) {
 	err = StoreData(db, data, "crypto_data_test")
 	if err != nil {
 		t.Log("It was not possible to store data:", err)
+		t.Fail()
+	}
+}
+
+func MockReadCurrencyList(filePath string) ([][]string, error) {
+	return [][]string{
+		{"currency code", "currency name"},
+		{"BTC", ""},
+		{"ADA", "ADA"},
+		{"AIR", "AIR"},
+		{"ETH", "Ethereum"},
+		{"SLR", "Solarium"},
+	}, nil
+}
+
+func TestRun(t *testing.T) {
+
+	c, err := NewCollector("../crypto.sqlite", "../apikey.txt", "https://www.alphavantage.co/query?function=DIGITAL_CURRENCY_WEEKLY&symbol=%s&market=EUR&apikey=%s", "../digital_currency_list.csv", MockReadCurrencyList)
+	if err != nil {
+		t.Log("unable to create  collector")
+		t.Fail()
+	}
+
+	err = c.Run()
+	if err != nil {
+		t.Log("there was a problem running run", err.Error())
 		t.Fail()
 	}
 }

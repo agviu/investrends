@@ -118,14 +118,20 @@ import (
 // }
 
 func main() {
-	c := collector.Collector{
-		DbFilePath:           "./crypto.sqlite",
-		ApiKeyFilePath:       "apikey.txt",
-		ApiUrl:               "https://www.alphavantage.co/query?function=DIGITAL_CURRENCY_WEEKLY&symbol=%s&market=EUR&apikey=%s",
-		CurrencyListFilePath: "digital_currency_list.csv",
+	c, err := collector.NewCollector("./crypto.sqlite", "apikey.txt", "https://www.alphavantage.co/query?function=DIGITAL_CURRENCY_WEEKLY&symbol=%s&market=EUR&apikey=%s", "digital_currency_list.csv", collector.ReadCurrencyList)
+	if err != nil {
+		log.Fatal("unable to create collector object")
+		return
 	}
+	// c := collector.Collector{
+	// 	DbFilePath:           "./crypto.sqlite",
+	// 	ApiKeyFilePath:       "apikey.txt",
+	// 	ApiUrl:               "https://www.alphavantage.co/query?function=DIGITAL_CURRENCY_WEEKLY&symbol=%s&market=EUR&apikey=%s",
+	// 	CurrencyListFilePath: "digital_currency_list.csv",
+	// 	currencyList:         collector.ReadCurrencyList,
+	// }
 
-	err := collector.Run(c)
+	err = c.Run()
 	if err != nil {
 		switch err.(type) {
 		// case DataError:

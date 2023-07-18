@@ -17,6 +17,10 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
+type APIGetter interface {
+	GetRawValuesFromSymbolAPI(symbol string) (CryptoDataRaw, error)
+}
+
 // The data as it comes from the API is stored here.
 type CryptoDataRaw struct {
 	MetaData struct {
@@ -34,29 +38,41 @@ type CryptoDataCurated struct {
 	value  float64
 }
 
+type CurrencyListReaderFunc func(string) ([][]string, error)
+
 // Configuration values for this program.
 type Collector struct {
 	DbFilePath           string
+	ApiKey               string
 	ApiKeyFilePath       string
 	ApiUrl               string
 	CurrencyListFilePath string
+	currencyList         CurrencyListReaderFunc
 }
 
-type CollectorTest struct {
-	Collector
+func NewCollector(dbFilePath string, apiKeyFilePath string, apiUrl string, currencyListFilePath string, currencyList CurrencyListReaderFunc) (Collector, error) {
+	apiKey, err := getApiKey(apiKeyFilePath)
+	if err != nil {
+		var c Collector
+		return c, err
+	}
+	c := Collector{
+		DbFilePath:           dbFilePath,
+		ApiKey:               apiKey,
+		CurrencyListFilePath: currencyListFilePath,
+		ApiUrl:               apiUrl,
+		ApiKeyFilePath:       apiKeyFilePath,
+		currencyList:         currencyList,
+	}
+
+	return c, nil
 }
-
-// func (c CollectorTest) GetRawValuesFromSymbolAPI(symbol string, apiKey string) (CryptoDataRaw, error) {
-// 	var cryptoData CryptoDataRaw
-
-// 	return cryptoData, nil
-// }
 
 // Connects to the Alpha Vantage API and gets the latest values for a given symbol.
-func GetRawValuesFromSymbolAPI(symbol string, apiKey string, apiUrl string) (CryptoDataRaw, error) {
+func (c Collector) GetRawValuesFromSymbolAPI(symbol string) (CryptoDataRaw, error) {
 	var cryptoData CryptoDataRaw
 	// Fetch data for each symbol
-	url := fmt.Sprintf(apiUrl, symbol, apiKey)
+	url := fmt.Sprintf(c.ApiUrl, symbol, c.ApiKey)
 	resp, err := http.Get(url)
 	if err != nil {
 		return cryptoData, ConnectionError{Msg: "Failed to fetch data from API:" + err.Error()}
@@ -85,18 +101,14 @@ func GetRawValuesFromSymbolAPI(symbol string, apiKey string, apiUrl string) (Cry
 //   - Connects to API to retrieve data. It does it in a loop, 5 each time, and wait a minute
 //     This is for respect the API limit (5 requests per minute max).
 //   - Process the data, storing it in the database.
-func Run(c Collector) error {
+func (c Collector) Run() error {
 
-	var apiKey, err = getApiKey(c.ApiKeyFilePath)
+	records, err := c.currencyList(c.CurrencyListFilePath)
 	if err != nil {
 		return err
 	}
 
-	records, err := readCurrencyList(c.CurrencyListFilePath)
-	if err != nil {
-		return err
-	}
-
+	return nil
 	db, err := setUpDb(c.DbFilePath, "")
 	if err != nil {
 		return DbError{Msg: "Error setting up the database"}
@@ -114,7 +126,7 @@ func Run(c Collector) error {
 
 		symbol := string(record[0])
 
-		raw, err := GetRawValuesFromSymbolAPI(symbol, apiKey, "https://www.alphavantage.co/query?function=DIGITAL_CURRENCY_WEEKLY&symbol=%s&market=EUR&apikey=%s")
+		raw, err := c.GetRawValuesFromSymbolAPI(symbol)
 		if err != nil {
 			log.Fatalf("Failed to fetch data from API: %v", err)
 			break
@@ -177,7 +189,7 @@ func getApiKey(filePath string) (string, error) {
 }
 
 // Reads the list of currencies from a file in filePath.
-func readCurrencyList(filePath string) ([][]string, error) {
+func ReadCurrencyList(filePath string) ([][]string, error) {
 	var records [][]string
 
 	// Read CSV file
