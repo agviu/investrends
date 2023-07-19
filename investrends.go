@@ -131,7 +131,7 @@ func main() {
 	// 	currencyList:         collector.ReadCurrencyList,
 	// }
 
-	err = c.Run()
+	err = c.Run(5)
 	if err != nil {
 		switch err.(type) {
 		// case DataError:

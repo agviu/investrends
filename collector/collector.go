@@ -40,6 +40,8 @@ type CryptoDataCurated struct {
 
 type CurrencyListReaderFunc func(string) ([][]string, error)
 
+type SetUpDbFunc func(dbFilePath string, sqlStmt string) (*sql.DB, error)
+
 // Configuration values for this program.
 type Collector struct {
 	DbFilePath           string
@@ -48,6 +50,7 @@ type Collector struct {
 	ApiUrl               string
 	CurrencyListFilePath string
 	currencyList         CurrencyListReaderFunc
+	setupDb              SetUpDbFunc
 }
 
 func NewCollector(dbFilePath string, apiKeyFilePath string, apiUrl string, currencyListFilePath string, currencyList CurrencyListReaderFunc) (Collector, error) {
@@ -63,6 +66,7 @@ func NewCollector(dbFilePath string, apiKeyFilePath string, apiUrl string, curre
 		ApiUrl:               apiUrl,
 		ApiKeyFilePath:       apiKeyFilePath,
 		currencyList:         currencyList,
+		setupDb:              setUpDb,
 	}
 
 	return c, nil
@@ -101,26 +105,25 @@ func (c Collector) GetRawValuesFromSymbolAPI(symbol string) (CryptoDataRaw, erro
 //   - Connects to API to retrieve data. It does it in a loop, 5 each time, and wait a minute
 //     This is for respect the API limit (5 requests per minute max).
 //   - Process the data, storing it in the database.
-func (c Collector) Run() error {
+func (c Collector) Run(n int) error {
 
 	records, err := c.currencyList(c.CurrencyListFilePath)
 	if err != nil {
 		return err
 	}
 
-	return nil
-	db, err := setUpDb(c.DbFilePath, "")
+	db, err := c.setupDb(c.DbFilePath, "")
 	if err != nil {
 		return DbError{Msg: "Error setting up the database"}
 	}
-
+	// return nil
 	for i, record := range records {
 		if i == 0 {
 			// First row is a header, not useful
 			continue
 		}
 
-		if i > 0 && i%5 == 0 { // Pause every 5 requests to comply with rate limit
+		if i > 0 && i%n == 0 { // Pause every n requests to comply with rate limit
 			time.Sleep(time.Minute)
 		}
 

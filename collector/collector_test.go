@@ -1,6 +1,7 @@
 package collector
 
 import (
+	"database/sql"
 	"encoding/json"
 	"io"
 	"log"
@@ -271,6 +272,11 @@ func MockReadCurrencyList(filePath string) ([][]string, error) {
 	}, nil
 }
 
+func MockSetUpDB(dbFilePath string, sqlStmt string) (*sql.DB, error) {
+	var db sql.DB
+	return &db, nil
+}
+
 func TestRun(t *testing.T) {
 
 	c, err := NewCollector("../crypto.sqlite", "../apikey.txt", "https://www.alphavantage.co/query?function=DIGITAL_CURRENCY_WEEKLY&symbol=%s&market=EUR&apikey=%s", "../digital_currency_list.csv", MockReadCurrencyList)
@@ -278,6 +284,7 @@ func TestRun(t *testing.T) {
 		t.Log("unable to create  collector")
 		t.Fail()
 	}
+	c.setupDb = MockSetUpDB
 
 	err = c.Run()
 	if err != nil {
