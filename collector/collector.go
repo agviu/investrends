@@ -55,6 +55,7 @@ type Collector struct {
 	CurrencyListFilePath string
 }
 
+// Creates a new Collector struct.
 func NewCollector(dbFilePath string, apiKeyFilePath string, apiUrl string,
 	currencyListFilePath string) (Collector, error) {
 	apiKey, err := getApiKey(apiKeyFilePath)
@@ -73,10 +74,12 @@ func NewCollector(dbFilePath string, apiKeyFilePath string, apiUrl string,
 	return c, nil
 }
 
+// wrapper around the real function, needed for tests.
 func (c Collector) GetStoreDataFunc() StoreDataFunc {
 	return StoreData
 }
 
+// wrapper around the real function, needed for tests.
 func (c Collector) GetExtractDataFromValuesFunc() ExtractDataFromValuesFunc {
 	return ExtractDataFromValues
 }
@@ -138,23 +141,34 @@ func Run(c CollectorInterface, n int) error {
 
 		symbol := string(record[0])
 
+		fmt.Println("Processing for ... ", symbol)
 		raw, err := c.GetRawValuesFromSymbolAPI(symbol)
 		if err != nil {
-			log.Fatalf("Failed to fetch data from API: %v", err)
-			break
+			switch err.(type) {
+			case DataError:
+				// The data is unreadable, but the loop can continue.
+				// Somehow the API returns Data error for certain symbols.
+				log.Print("Data from symbol", symbol, "is erroneus")
+			default:
+				log.Fatalf("Failed to fetch data from API: %v", err)
+				return err
+			}
+			continue
 		}
 
 		curatedData, err := c.GetExtractDataFromValuesFunc()(raw, 25, symbol)
 		if err != nil {
-			log.Fatal("Unable to extract data from raw response.")
-			break
+			log.Print("Unable to extract data from raw response.")
+			continue
 		}
 
-		err = c.GetStoreDataFunc()(db, curatedData, "crypto_data")
+		err = c.GetStoreDataFunc()(db, curatedData, "crypto_prices")
 		if err != nil {
-			log.Fatal("unable to store data in the database")
-			break
+			log.Print("unable to store data in the database")
+			continue
 		}
+
+		fmt.Println(" DONE.")
 	}
 
 	return err
@@ -207,7 +221,7 @@ func (c Collector) setUpDb(sqlStmt string) (*sql.DB, error) {
 
 	if sqlStmt == "" {
 		sqlStmt = `
-		CREATE TABLE IF NOT EXISTS crypto_data (
+		CREATE TABLE IF NOT EXISTS crypto_prices (
 			id INTEGER PRIMARY KEY,
     		symbol TEXT,
     		timestamp TEXT,
@@ -243,6 +257,10 @@ func ExtractDataFromValues(cdr CryptoDataRaw, n int, symbol string) ([]CryptoDat
 	if err != nil {
 		return curatedData, errors.New("unable to convert date from string to time.Time")
 	}
+
+	// As it is weekly, we check from last sunday.
+	// Substracts the number of days until last sunday to start from there.
+	t = t.AddDate(0, 0, -int(t.Weekday()))
 
 	i := 1
 	for i <= n {

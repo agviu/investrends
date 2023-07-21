@@ -38,7 +38,8 @@ func initCollector() (Collector, error) {
 }
 
 func TestGetRawValuesFromSymbolAPI(t *testing.T) {
-	var symbols = []string{"BTC", "ADA", "AIR", "ETH", "SLR"}
+	// var symbols = []string{"BTC", "ADA", "AIR", "ETH", "SLR"}
+	var symbols = []string{"AVAX", "ATOM", "AST", "ARDR", "BTC"}
 
 	c, err := initCollector()
 	if err != nil {
@@ -148,7 +149,7 @@ func TestSetupDb(t *testing.T) {
 	}
 
 	sqlStmt = `
-	CREATE TABLE IF NOT EXISTS crypto_data_test (
+	CREATE TABLE IF NOT EXISTS crypto_prices_test (
 		id INTEGER PRIMARY KEY,
     	symbol TEXT,
     	timestamp TEXT,
@@ -164,10 +165,10 @@ func TestSetupDb(t *testing.T) {
 	defer db.Close()
 	defer func() {
 		t.Log("Deleting the table created for the test.")
-		db.Exec("DROP TABLE IF EXISTS crypto_data_test")
+		db.Exec("DROP TABLE IF EXISTS crypto_prices_test")
 	}()
 
-	result, err := db.Exec(`INSERT INTO crypto_data_test (symbol, timestamp, value) VALUES (?, ?, ?)`, "A-SYMBOL", "THE-TIMESTAMP", "THE-VALUE")
+	result, err := db.Exec(`INSERT INTO crypto_prices_test (symbol, timestamp, value) VALUES (?, ?, ?)`, "A-SYMBOL", "THE-TIMESTAMP", "THE-VALUE")
 	if err != nil {
 		t.Log("There was an error trying to write data to the database.")
 		t.FailNow()
@@ -261,7 +262,7 @@ func TestStoreData(t *testing.T) {
 	}
 
 	sqlStmt := `
-	CREATE TABLE IF NOT EXISTS crypto_data_test (
+	CREATE TABLE IF NOT EXISTS crypto_prices_test (
 		symbol TEXT NOT NULL,
 		timestamp TEXT NOT NULL,
 		value REAL NOT NULL
@@ -276,7 +277,7 @@ func TestStoreData(t *testing.T) {
 	defer db.Close()
 	defer func() {
 		t.Log("Deleting the table created for the test.")
-		db.Exec("DROP TABLE IF EXISTS crypto_data_test")
+		db.Exec("DROP TABLE IF EXISTS crypto_prices_test")
 	}()
 
 	data := []CryptoDataCurated{
@@ -296,7 +297,7 @@ func TestStoreData(t *testing.T) {
 			value:  1.00,
 		},
 	}
-	err = StoreData(db, data, "crypto_data_test")
+	err = StoreData(db, data, "crypto_prices_test")
 	if err != nil {
 		t.Log("It was not possible to store data:", err)
 		t.Fail()
@@ -369,7 +370,7 @@ func TestRun(t *testing.T) {
 		t.Fail()
 	}
 
-	err = Run(mc, 5)
+	err = Run(mc, 10)
 	if err != nil {
 		t.Log("there was a problem running run", err.Error())
 		t.Fail()

@@ -5,11 +5,11 @@
         "3. Digital Currency Name": "Bitcoin",
         "4. Market Code": "EUR",
         "5. Market Name": "Euro",
-        "6. Last Refreshed": "2023-07-09 00:00:00",
+        "6. Last Refreshed": "2023-07-08 00:00:00",
         "7. Time Zone": "UTC"
     },
     "Time Series (Digital Currency Weekly)": {
-        "2023-07-09": {
+        "2023-07-08": {
             "1a. open (EUR)": "27910.47543200",
             "1b. open (USD)": "30617.02000000",
             "2a. high (EUR)": "28715.40000000",
