@@ -118,7 +118,9 @@ import (
 // }
 
 func main() {
-	c, err := collector.NewCollector("./crypto.sqlite", "apikey.txt", "https://www.alphavantage.co/query?function=DIGITAL_CURRENCY_WEEKLY&symbol=%s&market=EUR&apikey=%s", "digital_currency_list.csv", collector.ReadCurrencyList)
+	c, err := collector.NewCollector("./crypto.sqlite", "apikey.txt",
+		"https://www.alphavantage.co/query?function=DIGITAL_CURRENCY_WEEKLY&symbol=%s&market=EUR&apikey=%s",
+		"digital_currency_list.csv", collector.ExtractDataFromValues, collector.StoreData)
 	if err != nil {
 		log.Fatal("unable to create collector object")
 		return
@@ -131,7 +133,7 @@ func main() {
 	// 	currencyList:         collector.ReadCurrencyList,
 	// }
 
-	err = c.Run(5)
+	err = collector.Run(c, 5)
 	if err != nil {
 		switch err.(type) {
 		// case DataError:

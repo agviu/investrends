@@ -9,12 +9,38 @@ import (
 	"testing"
 )
 
-// @todo: the keyApi needs to be read from the file, as it cannot
-// be committed.
+type MockCollector struct {
+	Collector
+}
+
+func NewMockCollector(dbFilePath string, apiKeyFilePath string, apiUrl string, currencyListFilePath string) (MockCollector, error) {
+	apiKey, err := getApiKey(apiKeyFilePath)
+	if err != nil {
+		var mc MockCollector
+		return mc, err
+	}
+
+	mc := MockCollector{
+		Collector: Collector{
+			DbFilePath:           dbFilePath,
+			ApiKey:               apiKey,
+			CurrencyListFilePath: currencyListFilePath,
+			ApiUrl:               apiUrl,
+			ApiKeyFilePath:       apiKeyFilePath,
+		},
+	}
+
+	return mc, nil
+}
+
+func initCollector() (Collector, error) {
+	return NewCollector("../crypto.sqlite", "../apikey.txt", "https://www.alphavantage.co/query?function=DIGITAL_CURRENCY_WEEKLY&symbol=%s&market=EUR&apikey=%s", "../digital_currency_list.csv")
+}
+
 func TestGetRawValuesFromSymbolAPI(t *testing.T) {
 	var symbols = []string{"BTC", "ADA", "AIR", "ETH", "SLR"}
 
-	c, err := NewCollector("../crypto.sqlite", "../apikey.txt", "https://www.alphavantage.co/query?function=DIGITAL_CURRENCY_WEEKLY&symbol=%s&market=EUR&apikey=%s", "../digital_currency_list.csv", ReadCurrencyList)
+	c, err := initCollector()
 	if err != nil {
 		t.Log("unable to create  collector")
 		t.Fail()
@@ -66,13 +92,21 @@ func TestGetApiKey(t *testing.T) {
 // Tests that the list of currencies can be properly loaded, and contain
 // the expected amount of data.
 func TestReadCurrencyList(t *testing.T) {
-	_, err := ReadCurrencyList("non_existing_csv.csv")
+	c, err := initCollector()
+	if err != nil {
+		t.Log("error creating the collector")
+		t.Fail()
+	}
+
+	c.CurrencyListFilePath = "non_existing_csv.csv"
+	_, err = c.ReadCurrencyList()
 	if err == nil {
 		t.Log("Non error returned when non existing file")
 		t.Fail()
 	}
 
-	records, err := ReadCurrencyList("../digital_currency_list.csv")
+	c.CurrencyListFilePath = "../digital_currency_list.csv"
+	records, err := c.ReadCurrencyList()
 	if err != nil {
 		t.Log(err.Error())
 		t.Fail()
@@ -97,12 +131,16 @@ func TestReadCurrencyList(t *testing.T) {
 
 // Tests that the database can be created.
 func TestSetupDb(t *testing.T) {
-	db_name := "../crypto.sqlite"
+	c, err := initCollector()
+	if err != nil {
+		t.Log("error creating the collector")
+		t.Fail()
+	}
 
 	sqlStmt := `
 	THIS IS RUBBISH, DB SHOULD RETURN AN ERROR
 	`
-	_, err := setUpDb(db_name, sqlStmt)
+	_, err = c.setUpDb(sqlStmt)
 	if err == nil {
 		t.Fatal("Query was wrong and an error should have been received.")
 	} else {
@@ -118,7 +156,7 @@ func TestSetupDb(t *testing.T) {
     	UNIQUE(symbol, timestamp)
 	);
 	`
-	db, err := setUpDb(db_name, sqlStmt)
+	db, err := c.setUpDb(sqlStmt)
 	if err != nil {
 		t.Log("The create table statement returned an unexpected error")
 		t.Fail()
@@ -216,7 +254,11 @@ func TestExtractDataFromValues(t *testing.T) {
 }
 
 func TestStoreData(t *testing.T) {
-	db_name := "../crypto.sqlite"
+	c, err := initCollector()
+	if err != nil {
+		t.Log("unable to create  collector")
+		t.Fail()
+	}
 
 	sqlStmt := `
 	CREATE TABLE IF NOT EXISTS crypto_data_test (
@@ -226,7 +268,7 @@ func TestStoreData(t *testing.T) {
 	);
 	`
 
-	db, err := setUpDb(db_name, sqlStmt)
+	db, err := c.setUpDb(sqlStmt)
 	if err != nil {
 		t.Log("The create table statement returned an unexpected error")
 		t.Fail()
@@ -261,7 +303,7 @@ func TestStoreData(t *testing.T) {
 	}
 }
 
-func MockReadCurrencyList(filePath string) ([][]string, error) {
+func (mc MockCollector) ReadCurrencyList() ([][]string, error) {
 	return [][]string{
 		{"currency code", "currency name"},
 		{"BTC", ""},
@@ -272,21 +314,62 @@ func MockReadCurrencyList(filePath string) ([][]string, error) {
 	}, nil
 }
 
-func MockSetUpDB(dbFilePath string, sqlStmt string) (*sql.DB, error) {
+func (mc MockCollector) setUpDb(sqlStmt string) (*sql.DB, error) {
 	var db sql.DB
 	return &db, nil
 }
 
+func (mc MockCollector) GetRawValuesFromSymbolAPI(symbol string) (CryptoDataRaw, error) {
+
+	data := CryptoDataRaw{
+		MetaData: struct {
+			LastRefreshed string `json:"6. Last Refreshed"`
+		}{
+			LastRefreshed: "2023-07-05",
+		},
+		TimeSeries: map[string]struct {
+			Close string `json:"4a. close (EUR)"`
+		}{
+			"2023-07-05": {
+				Close: "32000.00",
+			},
+			"2023-06-28": {
+				Close: "31000.00",
+			},
+			// Add more data points as necessary...
+		},
+	}
+
+	return data, nil
+
+}
+
+func MockExtractDataFromValues(cdr CryptoDataRaw, n int, symbol string) ([]CryptoDataCurated, error) {
+	var cdc []CryptoDataCurated
+	return cdc, nil
+}
+
+func (mc MockCollector) GetExtractDataFromValuesFunc() ExtractDataFromValuesFunc {
+	return MockExtractDataFromValues
+}
+
+func MockStoreData(db *sql.DB, data []CryptoDataCurated, tableName string) error {
+	return nil
+}
+
+func (mc MockCollector) GetStoreDataFunc() StoreDataFunc {
+	return MockStoreData
+}
+
 func TestRun(t *testing.T) {
 
-	c, err := NewCollector("../crypto.sqlite", "../apikey.txt", "https://www.alphavantage.co/query?function=DIGITAL_CURRENCY_WEEKLY&symbol=%s&market=EUR&apikey=%s", "../digital_currency_list.csv", MockReadCurrencyList)
+	mc, err := NewMockCollector("../crypto.sqlite", "../apikey.txt", "https://www.alphavantage.co/query?function=DIGITAL_CURRENCY_WEEKLY&symbol=%s&market=EUR&apikey=%s", "../digital_currency_list.csv")
 	if err != nil {
 		t.Log("unable to create  collector")
 		t.Fail()
 	}
-	c.setupDb = MockSetUpDB
 
-	err = c.Run()
+	err = Run(mc, 5)
 	if err != nil {
 		t.Log("there was a problem running run", err.Error())
 		t.Fail()

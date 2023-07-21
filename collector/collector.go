@@ -17,8 +17,12 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
-type APIGetter interface {
+type CollectorInterface interface {
 	GetRawValuesFromSymbolAPI(symbol string) (CryptoDataRaw, error)
+	ReadCurrencyList() ([][]string, error)
+	setUpDb(sqlStmt string) (*sql.DB, error)
+	GetStoreDataFunc() StoreDataFunc
+	GetExtractDataFromValuesFunc() ExtractDataFromValuesFunc
 }
 
 // The data as it comes from the API is stored here.
@@ -38,9 +42,9 @@ type CryptoDataCurated struct {
 	value  float64
 }
 
-type CurrencyListReaderFunc func(string) ([][]string, error)
+type ExtractDataFromValuesFunc func(cdr CryptoDataRaw, n int, symbol string) ([]CryptoDataCurated, error)
 
-type SetUpDbFunc func(dbFilePath string, sqlStmt string) (*sql.DB, error)
+type StoreDataFunc func(db *sql.DB, data []CryptoDataCurated, tableName string) error
 
 // Configuration values for this program.
 type Collector struct {
@@ -49,11 +53,10 @@ type Collector struct {
 	ApiKeyFilePath       string
 	ApiUrl               string
 	CurrencyListFilePath string
-	currencyList         CurrencyListReaderFunc
-	setupDb              SetUpDbFunc
 }
 
-func NewCollector(dbFilePath string, apiKeyFilePath string, apiUrl string, currencyListFilePath string, currencyList CurrencyListReaderFunc) (Collector, error) {
+func NewCollector(dbFilePath string, apiKeyFilePath string, apiUrl string,
+	currencyListFilePath string) (Collector, error) {
 	apiKey, err := getApiKey(apiKeyFilePath)
 	if err != nil {
 		var c Collector
@@ -65,11 +68,17 @@ func NewCollector(dbFilePath string, apiKeyFilePath string, apiUrl string, curre
 		CurrencyListFilePath: currencyListFilePath,
 		ApiUrl:               apiUrl,
 		ApiKeyFilePath:       apiKeyFilePath,
-		currencyList:         currencyList,
-		setupDb:              setUpDb,
 	}
 
 	return c, nil
+}
+
+func (c Collector) GetStoreDataFunc() StoreDataFunc {
+	return StoreData
+}
+
+func (c Collector) GetExtractDataFromValuesFunc() ExtractDataFromValuesFunc {
+	return ExtractDataFromValues
 }
 
 // Connects to the Alpha Vantage API and gets the latest values for a given symbol.
@@ -105,14 +114,14 @@ func (c Collector) GetRawValuesFromSymbolAPI(symbol string) (CryptoDataRaw, erro
 //   - Connects to API to retrieve data. It does it in a loop, 5 each time, and wait a minute
 //     This is for respect the API limit (5 requests per minute max).
 //   - Process the data, storing it in the database.
-func (c Collector) Run(n int) error {
+func Run(c CollectorInterface, n int) error {
 
-	records, err := c.currencyList(c.CurrencyListFilePath)
+	records, err := c.ReadCurrencyList()
 	if err != nil {
 		return err
 	}
 
-	db, err := c.setupDb(c.DbFilePath, "")
+	db, err := c.setUpDb("")
 	if err != nil {
 		return DbError{Msg: "Error setting up the database"}
 	}
@@ -135,13 +144,13 @@ func (c Collector) Run(n int) error {
 			break
 		}
 
-		curatedData, err := ExtractDataFromValues(raw, 25, symbol)
+		curatedData, err := c.GetExtractDataFromValuesFunc()(raw, 25, symbol)
 		if err != nil {
 			log.Fatal("Unable to extract data from raw response.")
 			break
 		}
 
-		err = StoreData(db, curatedData, "crypto_data")
+		err = c.GetStoreDataFunc()(db, curatedData, "crypto_data")
 		if err != nil {
 			log.Fatal("unable to store data in the database")
 			break
@@ -150,30 +159,6 @@ func (c Collector) Run(n int) error {
 
 	return err
 }
-
-// func main() {
-// 	c := InvestrendsConf{
-// 		dbFilePath:           "./crypto.sqlite",
-// 		apiKeyFilePath:       "apikey.txt",
-// 		apiUrl:               "https://www.alphavantage.co/query?function=DIGITAL_CURRENCY_DAILY&symbol=%s&market=EUR&apikey=%s",
-// 		currencyListFilePath: "digital_currency_list.csv",
-// 	}
-
-// 	err := Run(c)
-// 	if err != nil {
-// 		switch err.(type) {
-// 		case DataError:
-// 			// @todo: Log stuff
-// 		default:
-// 			log.Fatal("There has been an error")
-// 		}
-
-// 		fmt.Println("Unfortunately there was an error running the program.")
-// 		return
-// 	}
-
-// 	fmt.Println("Program ran succesfully.")
-// }
 
 // Gets the API key, from a file in filePath
 func getApiKey(filePath string) (string, error) {
@@ -192,11 +177,11 @@ func getApiKey(filePath string) (string, error) {
 }
 
 // Reads the list of currencies from a file in filePath.
-func ReadCurrencyList(filePath string) ([][]string, error) {
+func (c Collector) ReadCurrencyList() ([][]string, error) {
 	var records [][]string
 
 	// Read CSV file
-	file, err := os.Open(filePath)
+	file, err := os.Open(c.CurrencyListFilePath)
 	if err != nil {
 		return records, FileSystemError{Msg: "Error while reading the currency list file"}
 	}
@@ -212,8 +197,8 @@ func ReadCurrencyList(filePath string) ([][]string, error) {
 }
 
 // Set's up database, creating the table if not done before.
-func setUpDb(dbFilePath string, sqlStmt string) (*sql.DB, error) {
-	db, err := sql.Open("sqlite3", dbFilePath)
+func (c Collector) setUpDb(sqlStmt string) (*sql.DB, error) {
+	db, err := sql.Open("sqlite3", c.DbFilePath)
 	if err != nil {
 		return db, FileSystemError{Msg: "Error reading the database file. Is it missing?"}
 	}
@@ -283,6 +268,7 @@ func ExtractDataFromValues(cdr CryptoDataRaw, n int, symbol string) ([]CryptoDat
 	return curatedData, nil
 }
 
+// Stores the data in the database.
 func StoreData(db *sql.DB, data []CryptoDataCurated, tableName string) error {
 	if tableName == "" {
 		tableName = "crypto_prices"
