@@ -148,7 +148,7 @@ func Run(c CollectorInterface, n int) error {
 			case DataError:
 				// The data is unreadable, but the loop can continue.
 				// Somehow the API returns Data error for certain symbols.
-				log.Print("Data from symbol", symbol, "is erroneus")
+				log.Printf("Data from symbol %v was not valid", symbol)
 			default:
 				log.Fatalf("Failed to fetch data from API: %v", err)
 				return err
@@ -158,13 +158,13 @@ func Run(c CollectorInterface, n int) error {
 
 		curatedData, err := c.GetExtractDataFromValuesFunc()(raw, 25, symbol)
 		if err != nil {
-			log.Print("Unable to extract data from raw response.")
+			log.Print("Unable to extract data from raw response: ", err)
 			continue
 		}
 
 		err = c.GetStoreDataFunc()(db, curatedData, "crypto_prices")
 		if err != nil {
-			log.Print("unable to store data in the database")
+			log.Print("unable to store data in the database: ", err)
 			continue
 		}
 
