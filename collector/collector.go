@@ -128,8 +128,21 @@ func Run(c CollectorInterface, n int) error {
 	if err != nil {
 		return DbError{Msg: "Error setting up the database"}
 	}
-	// return nil
-	for i, record := range records {
+
+	index, err := readIndexFromFile("index.txt")
+	if err != nil {
+		// If the file doesn't exist yet, start from the beginning.
+		index = 0
+	}
+
+	for i := index; i < len(records); i++ {
+
+		err = writeIndexToFile(i, "index.txt")
+		if err != nil {
+			log.Print("Failed to write index to file: ", err)
+			return err
+		}
+
 		if i == 0 {
 			// First row is a header, not useful
 			continue
@@ -139,7 +152,7 @@ func Run(c CollectorInterface, n int) error {
 			time.Sleep(time.Minute)
 		}
 
-		symbol := string(record[0])
+		symbol := string(records[i][0])
 
 		fmt.Println("Processing for ... ", symbol)
 		raw, err := c.GetRawValuesFromSymbolAPI(symbol)
@@ -159,6 +172,7 @@ func Run(c CollectorInterface, n int) error {
 		curatedData, err := c.GetExtractDataFromValuesFunc()(raw, 25, symbol)
 		if err != nil {
 			log.Print("Unable to extract data from raw response: ", err)
+			log.Print("We probably reached the limit for today. Stop and continue tomorrow.")
 			continue
 		}
 
@@ -171,6 +185,8 @@ func Run(c CollectorInterface, n int) error {
 		fmt.Println(" DONE.")
 	}
 
+	// Once finished, restart the index.
+	err = writeIndexToFile(0, "index.txt")
 	return err
 }
 
@@ -318,4 +334,39 @@ func StoreData(db *sql.DB, data []CryptoDataCurated, tableName string) error {
 	}
 
 	return nil
+}
+
+func writeIndexToFile(i int, path string) error {
+	file, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	_, err = file.WriteString(strconv.Itoa(i))
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func readIndexFromFile(path string) (int, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return 0, err
+	}
+	defer file.Close()
+
+	bytes, err := io.ReadAll(file)
+	if err != nil {
+		return 0, err
+	}
+
+	i, err := strconv.Atoi(string(bytes))
+	if err != nil {
+		return 0, err
+	}
+
+	return i, nil
 }
