@@ -17,12 +17,22 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
+const (
+	allGood = iota
+	limitReached
+	missingDate
+	missingSymbol
+	jsonBroken
+)
+
 type CollectorInterface interface {
-	GetRawValuesFromSymbolAPI(symbol string) (CryptoDataRaw, error)
+	// GetRawValuesFromSymbolAPI(symbol string) (CryptoDataRaw, error)
 	ReadCurrencyList() ([][]string, error)
 	setUpDb(sqlStmt string) (*sql.DB, error)
 	GetStoreDataFunc() StoreDataFunc
 	GetExtractDataFromValuesFunc() ExtractDataFromValuesFunc
+	GetGetDataFunc() GetDataFunc
+	GetURLFromSymbol(symbol string) string
 }
 
 // The data as it comes from the API is stored here.
@@ -45,6 +55,8 @@ type CryptoDataCurated struct {
 type ExtractDataFromValuesFunc func(cdr CryptoDataRaw, n int, symbol string) ([]CryptoDataCurated, error)
 
 type StoreDataFunc func(db *sql.DB, data []CryptoDataCurated, tableName string) error
+
+type GetDataFunc func(resource string) ([]byte, error)
 
 // Configuration values for this program.
 type Collector struct {
@@ -84,31 +96,37 @@ func (c Collector) GetExtractDataFromValuesFunc() ExtractDataFromValuesFunc {
 	return ExtractDataFromValues
 }
 
-// Connects to the Alpha Vantage API and gets the latest values for a given symbol.
-func (c Collector) GetRawValuesFromSymbolAPI(symbol string) (CryptoDataRaw, error) {
-	var cryptoData CryptoDataRaw
-	// Fetch data for each symbol
-	url := fmt.Sprintf(c.ApiUrl, symbol, c.ApiKey)
-	resp, err := http.Get(url)
+// Get data from a resource.
+// In this case, it gets the data from a HTTP server.
+func getData(resource string) ([]byte, error) {
+	var response []byte
+	resp, err := http.Get(resource)
 	if err != nil {
-		return cryptoData, ConnectionError{Msg: "Failed to fetch data from API:" + err.Error()}
+		return response, ConnectionError{Msg: "Failed to fetch data from API:" + err.Error()}
 	}
 
 	defer resp.Body.Close()
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return cryptoData, ConnectionError{Msg: "Failed to read data from the response:" + err.Error()}
-	}
-	if strings.Contains(string(body), "Error") {
-		return cryptoData, DataError{Msg: "Failed to read valid data when using symbol " + symbol + "Body was:" + string(body)}
+	return io.ReadAll(resp.Body)
+}
+
+// Connects to the Alpha Vantage API and gets the latest values for a given symbol.
+func GetRawValuesFromResponse(response []byte) (CryptoDataRaw, int) {
+	var cryptoData CryptoDataRaw
+
+	if strings.Contains(string(response), "Invalid API call.") {
+		return cryptoData, missingSymbol
 	}
 
-	err = json.Unmarshal(body, &cryptoData)
-	if err != nil {
-		return cryptoData, DataError{Msg: "Failed to parse API response: " + err.Error()}
+	if strings.Contains(string(response), "You have reached the 100 requests/day limit") {
+		return cryptoData, limitReached
 	}
 
-	return cryptoData, nil
+	err := json.Unmarshal(response, &cryptoData)
+	if err != nil {
+		return cryptoData, jsonBroken
+	}
+
+	return cryptoData, allGood
 }
 
 // Main function that runs functionality and returns error if something went wrong.
@@ -155,16 +173,20 @@ func Run(c CollectorInterface, n int) error {
 		symbol := string(records[i][0])
 
 		fmt.Println("Processing for ... ", symbol)
-		raw, err := c.GetRawValuesFromSymbolAPI(symbol)
-		if err != nil {
-			switch err.(type) {
-			case DataError:
+		url := c.GetURLFromSymbol(symbol)
+		response, err := c.GetGetDataFunc()(url)
+		raw, status := GetRawValuesFromResponse(response)
+		if status != allGood {
+			switch status {
+			case missingSymbol:
 				// The data is unreadable, but the loop can continue.
 				// Somehow the API returns Data error for certain symbols.
 				log.Printf("Data from symbol %v was not valid", symbol)
+			case limitReached:
+				log.Printf("Reached the limit for today.")
+				return nil
 			default:
-				log.Fatalf("Failed to fetch data from API: %v", err)
-				return err
+				log.Printf("Failed to fetch data from API: %v", err)
 			}
 			continue
 		}
@@ -172,7 +194,6 @@ func Run(c CollectorInterface, n int) error {
 		curatedData, err := c.GetExtractDataFromValuesFunc()(raw, 25, symbol)
 		if err != nil {
 			log.Print("Unable to extract data from raw response: ", err)
-			log.Print("We probably reached the limit for today. Stop and continue tomorrow.")
 			continue
 		}
 
@@ -188,6 +209,11 @@ func Run(c CollectorInterface, n int) error {
 	// Once finished, restart the index.
 	err = writeIndexToFile(0, "index.txt")
 	return err
+}
+
+// Returns the URL replacing the symbol in the placeholders.
+func (c Collector) GetURLFromSymbol(symbol string) string {
+	return fmt.Sprintf(c.ApiUrl, symbol, c.ApiKey)
 }
 
 // Gets the API key, from a file in filePath
@@ -369,4 +395,8 @@ func readIndexFromFile(path string) (int, error) {
 	}
 
 	return i, nil
+}
+
+func (c Collector) GetGetDataFunc() GetDataFunc {
+	return getData
 }

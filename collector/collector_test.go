@@ -39,7 +39,7 @@ func initCollector() (Collector, error) {
 
 func TestGetRawValuesFromSymbolAPI(t *testing.T) {
 	// var symbols = []string{"BTC", "ADA", "AIR", "ETH", "SLR"}
-	var symbols = []string{"AVAX", "ATOM", "AST", "ARDR", "BTC"}
+	var symbols = []string{"LIMIT", "NO-SYMBOL", "ALL-GOOD"}
 
 	c, err := initCollector()
 	if err != nil {
@@ -47,22 +47,47 @@ func TestGetRawValuesFromSymbolAPI(t *testing.T) {
 		t.Fail()
 	}
 
+	var mc MockCollector
+	mc.Collector = c
+
 	for _, symbol := range symbols {
 		t.Logf("Retrieving value for %v", symbol)
-		_, err := c.GetRawValuesFromSymbolAPI(symbol)
+		var url string
+		if symbol == "LIMIT" {
+			url = "datatest/limit_achieved_response.json"
+		} else if symbol == "NO-SYMBOL" {
+			url = "datatest/non_symbol_response.json"
+		} else if symbol == "ALL-GOOD" {
+			url = "datatest/sample_response.json"
+		}
 
+		response, err := mc.GetGetDataFunc()(url)
 		if err != nil {
-			switch err.(type) {
-			case DataError:
-				// The data is unreadable, but the test can continue.
-				t.Log("Data not readable for symbol", symbol+"Error was:"+err.Error())
-			case ConnectionError:
-				t.Fail()
-			default:
+			t.Logf("Failed to open the resource for %v: %v", url, err.Error())
+			t.Fail()
+		}
+
+		_, status := GetRawValuesFromResponse(response)
+
+		switch status {
+		case missingSymbol:
+			if symbol != "NO-SYMBOL" {
+				t.Logf("Received missing symbol without expecting.")
 				t.Fail()
 			}
-		} else {
-			t.Log("Data was valid for symbol", symbol)
+		case limitReached:
+			if symbol != "LIMIT" {
+				t.Logf("Received limit reached without being expected")
+				t.Fail()
+			}
+		case allGood:
+			if symbol != "ALL-GOOD" {
+				t.Logf("Received all-good without being expected")
+				t.Fail()
+			}
+		default:
+			t.Logf("We received a non expected status code: %v", status)
+			t.Fail()
 		}
 	}
 }
@@ -374,5 +399,19 @@ func TestRun(t *testing.T) {
 	if err != nil {
 		t.Log("there was a problem running run", err.Error())
 		t.Fail()
+	}
+}
+
+func (mc MockCollector) GetGetDataFunc() GetDataFunc {
+	return func(resource string) ([]byte, error) {
+		var response []byte
+		jsonFile, err := os.Open(resource)
+		if err != nil {
+			return response, err
+		}
+		defer jsonFile.Close()
+
+		// Read the file into a byte slice.
+		return io.ReadAll(jsonFile)
 	}
 }
