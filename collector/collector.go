@@ -33,6 +33,7 @@ type CollectorInterface interface {
 	GetExtractDataFromValuesFunc() ExtractDataFromValuesFunc
 	GetGetDataFunc() GetDataFunc
 	GetURLFromSymbol(symbol string) string
+	isProduction() bool
 }
 
 // The data as it comes from the API is stored here.
@@ -52,7 +53,7 @@ type CryptoDataCurated struct {
 	value  float64
 }
 
-type ExtractDataFromValuesFunc func(cdr CryptoDataRaw, n int, symbol string) ([]CryptoDataCurated, error)
+type ExtractDataFromValuesFunc func(cdr CryptoDataRaw, n int, symbol string) ([]CryptoDataCurated, int, error)
 
 type StoreDataFunc func(db *sql.DB, data []CryptoDataCurated, tableName string) error
 
@@ -65,11 +66,12 @@ type Collector struct {
 	ApiKeyFilePath       string
 	ApiUrl               string
 	CurrencyListFilePath string
+	production           bool
 }
 
 // Creates a new Collector struct.
 func NewCollector(dbFilePath string, apiKeyFilePath string, apiUrl string,
-	currencyListFilePath string) (Collector, error) {
+	currencyListFilePath string, production bool) (Collector, error) {
 	apiKey, err := getApiKey(apiKeyFilePath)
 	if err != nil {
 		var c Collector
@@ -81,6 +83,7 @@ func NewCollector(dbFilePath string, apiKeyFilePath string, apiUrl string,
 		CurrencyListFilePath: currencyListFilePath,
 		ApiUrl:               apiUrl,
 		ApiKeyFilePath:       apiKeyFilePath,
+		production:           production,
 	}
 
 	return c, nil
@@ -184,17 +187,26 @@ func Run(c CollectorInterface, n int) error {
 				log.Printf("Data from symbol %v was not valid", symbol)
 			case limitReached:
 				log.Printf("Reached the limit for today.")
-				return nil
+				if c.isProduction() {
+					log.Printf("We will continue in 24 hours")
+					time.Sleep(24 * time.Hour)
+				} else {
+					log.Printf("Finishing...")
+					return nil
+				}
 			default:
 				log.Printf("Failed to fetch data from API: %v", err)
 			}
 			continue
 		}
 
-		curatedData, err := c.GetExtractDataFromValuesFunc()(raw, 25, symbol)
+		curatedData, extracted, err := c.GetExtractDataFromValuesFunc()(raw, 25, symbol)
 		if err != nil {
 			log.Print("Unable to extract data from raw response: ", err)
 			continue
+		}
+		if extracted != 25 {
+			log.Printf("For symbol %v, only %v values were extracted as it was incomplete", symbol, extracted)
 		}
 
 		err = c.GetStoreDataFunc()(db, curatedData, "crypto_prices")
@@ -283,7 +295,7 @@ func (c Collector) setUpDb(sqlStmt string) (*sql.DB, error) {
 }
 
 // This function retrieve the useful data from the raw data.
-func ExtractDataFromValues(cdr CryptoDataRaw, n int, symbol string) ([]CryptoDataCurated, error) {
+func ExtractDataFromValues(cdr CryptoDataRaw, n int, symbol string) ([]CryptoDataCurated, int, error) {
 	var curatedData []CryptoDataCurated
 
 	// Retrieve which is the last value generated. It's stored
@@ -292,12 +304,12 @@ func ExtractDataFromValues(cdr CryptoDataRaw, n int, symbol string) ([]CryptoDat
 
 	date, _, ok := strings.Cut(lastRaw, " ")
 	if !ok {
-		return curatedData, errors.New("unable to get last refreshed date from raw data")
+		return curatedData, 0, errors.New("unable to get last refreshed date from raw data")
 	}
 	const layout = "2006-01-02"
 	t, err := time.Parse(layout, date)
 	if err != nil {
-		return curatedData, errors.New("unable to convert date from string to time.Time")
+		return curatedData, 0, errors.New("unable to convert date from string to time.Time")
 	}
 
 	// As it is weekly, we check from last sunday.
@@ -305,17 +317,20 @@ func ExtractDataFromValues(cdr CryptoDataRaw, n int, symbol string) ([]CryptoDat
 	t = t.AddDate(0, 0, -int(t.Weekday()))
 
 	i := 1
+	missing := 0
 	for i <= n {
 		value, ok := cdr.TimeSeries[t.Format(layout)]
 		if !ok {
-			return curatedData, errors.New("unable to get the value from the last refreshed date from TimeSeries raw data")
+			missing++
+			i++
+			continue
 		}
 
 		// Build the CryptoDataCurated struct
 		var curatedValue CryptoDataCurated
 		curatedValue.value, err = strconv.ParseFloat(value.Close, 64)
 		if err != nil {
-			return curatedData, errors.New("unable to get the float value from the string")
+			return curatedData, n - missing, errors.New("unable to get the float value from the string")
 		}
 		curatedValue.date = t.Format(layout)
 		curatedValue.symbol = symbol
@@ -325,7 +340,7 @@ func ExtractDataFromValues(cdr CryptoDataRaw, n int, symbol string) ([]CryptoDat
 		t = t.AddDate(0, 0, -7)
 	}
 
-	return curatedData, nil
+	return curatedData, n - missing, nil
 }
 
 // Stores the data in the database.
@@ -399,4 +414,8 @@ func readIndexFromFile(path string) (int, error) {
 
 func (c Collector) GetGetDataFunc() GetDataFunc {
 	return getData
+}
+
+func (c Collector) isProduction() bool {
+	return c.production
 }

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"log"
 
@@ -9,9 +10,18 @@ import (
 )
 
 func main() {
-	c, err := collector.NewCollector("./crypto.sqlite", "apikey.txt",
+	var dbName string
+	var apiKeyPath string
+	var production bool
+
+	flag.StringVar(&dbName, "db-name", "./crypto.sqlite", "Path to the sqlite database file, name icluded")
+	flag.StringVar(&apiKeyPath, "api-key-file", "apikey.txt", "Path to the text file that contains the API Key")
+	flag.BoolVar(&production, "prod", false, "Indicates if the program will run in production mode.")
+	flag.Parse()
+
+	c, err := collector.NewCollector(dbName, apiKeyPath,
 		"https://www.alphavantage.co/query?function=DIGITAL_CURRENCY_WEEKLY&symbol=%s&market=EUR&apikey=%s",
-		"digital_currency_list.csv")
+		"digital_currency_list.csv", production)
 	if err != nil {
 		log.Fatal("unable to create collector object")
 		return

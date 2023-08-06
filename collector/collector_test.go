@@ -34,7 +34,7 @@ func NewMockCollector(dbFilePath string, apiKeyFilePath string, apiUrl string, c
 }
 
 func initCollector() (Collector, error) {
-	return NewCollector("../crypto.sqlite", "../apikey.txt", "https://www.alphavantage.co/query?function=DIGITAL_CURRENCY_WEEKLY&symbol=%s&market=EUR&apikey=%s", "../digital_currency_list.csv")
+	return NewCollector("../crypto.sqlite", "../apikey.txt", "https://www.alphavantage.co/query?function=DIGITAL_CURRENCY_WEEKLY&symbol=%s&market=EUR&apikey=%s", "../digital_currency_list.csv", false)
 }
 
 func TestGetRawValuesFromSymbolAPI(t *testing.T) {
@@ -211,7 +211,7 @@ func TestSetupDb(t *testing.T) {
 }
 
 // Tests getting valus from the JSON and store them in our CryptoDataCurated struct
-func TestExtractDataFromValues(t *testing.T) {
+func TestExtractDataFromCompleteValues(t *testing.T) {
 	// Open the JSON file.
 	jsonFile, err := os.Open("datatest/sample_response.json")
 	if err != nil {
@@ -235,7 +235,7 @@ func TestExtractDataFromValues(t *testing.T) {
 		t.Fail()
 	}
 
-	values, err := ExtractDataFromValues(result, 30, "BTC")
+	values, _, err := ExtractDataFromValues(result, 30, "BTC")
 	if err != nil {
 		t.Log("It was not possible to extract the data. Error:", err)
 		t.Fail()
@@ -276,6 +276,41 @@ func TestExtractDataFromValues(t *testing.T) {
 			}
 		}
 
+	}
+}
+
+func TestExtractDataFromIncompleteValues(t *testing.T) {
+	// Open the JSON file.
+	jsonFile, err := os.Open("datatest/non_complete_response.json")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer jsonFile.Close()
+
+	// Read the file into a byte slice.
+	byteValue, err := io.ReadAll(jsonFile)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// Create a map to hold the JSON data.
+	var result CryptoDataRaw
+
+	// Unmarshal the byte slice into the map.
+	err = json.Unmarshal(byteValue, &result)
+	if err != nil {
+		t.Log("unable to unmarshal data", err)
+		t.Fail()
+	}
+
+	_, extracted, err := ExtractDataFromValues(result, 30, "BTC")
+	if err != nil {
+		t.Log("It was not possible to extract the data. Error:", err)
+		t.Fail()
+	}
+	if extracted == 30 {
+		t.Log("It should have extracted less than 30 items.")
+		t.Fail()
 	}
 }
 
@@ -370,9 +405,9 @@ func (mc MockCollector) GetRawValuesFromSymbolAPI(symbol string) (CryptoDataRaw,
 
 }
 
-func MockExtractDataFromValues(cdr CryptoDataRaw, n int, symbol string) ([]CryptoDataCurated, error) {
+func MockExtractDataFromValues(cdr CryptoDataRaw, n int, symbol string) ([]CryptoDataCurated, int, error) {
 	var cdc []CryptoDataCurated
-	return cdc, nil
+	return cdc, n, nil
 }
 
 func (mc MockCollector) GetExtractDataFromValuesFunc() ExtractDataFromValuesFunc {
