@@ -443,13 +443,13 @@ func TestRun(t *testing.T) {
 
 	mc, err := NewMockCollector("../crypto.sqlite", "../apikey.txt", "https://www.alphavantage.co/query?function=DIGITAL_CURRENCY_WEEKLY&symbol=%s&market=EUR&apikey=%s", "../digital_currency_list.csv")
 	if err != nil {
-		t.Log("unable to create  collector")
+		t.Log("unable to create collector")
 		t.Fail()
 	}
 
 	err = Run(mc, 10)
 	if err != nil {
-		t.Log("there was a problem running run", err.Error())
+		t.Log("there was a problem running Run", err.Error())
 		t.Fail()
 	}
 }
