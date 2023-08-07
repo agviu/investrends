@@ -383,12 +383,6 @@ func (mc MockCollector) ReadCurrencyList() ([][]string, error) {
 	}, nil
 }
 
-// Mock around setUpDb. We just return an empty pointer to a sql.DB, nothing else is needed.
-func (mc MockCollector) setUpDb(sqlStmt string) (*sql.DB, error) {
-	var db sql.DB
-	return &db, nil
-}
-
 // Mock around GetRawValuesFromSymbolAPI. We just return a CryptoDataRaw as if it would have been
 // retrieved from a request.
 func (mc MockCollector) GetRawValuesFromSymbolAPI(symbol string) (CryptoDataRaw, error) {
@@ -467,4 +461,9 @@ func (mc MockCollector) GetGetDataFunc() GetDataFunc {
 		// Read the file into a byte slice.
 		return io.ReadAll(jsonFile)
 	}
+}
+
+// Returns the URL replacing the symbol in the placeholders.
+func (mc MockCollector) GetURLFromSymbol(symbol string) string {
+	return "datatest/sample_response.json"
 }
