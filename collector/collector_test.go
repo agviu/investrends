@@ -9,10 +9,12 @@ import (
 	"testing"
 )
 
+// The MockCollector is a wrapper around Collector
 type MockCollector struct {
 	Collector
 }
 
+// Return a new MockCollector object, for tests.
 func NewMockCollector(dbFilePath string, apiKeyFilePath string, apiUrl string, currencyListFilePath string) (MockCollector, error) {
 	apiKey, err := getApiKey(apiKeyFilePath)
 	if err != nil {
@@ -33,13 +35,16 @@ func NewMockCollector(dbFilePath string, apiKeyFilePath string, apiUrl string, c
 	return mc, nil
 }
 
+// Init a collector with default values useful for our tests.
 func initCollector() (Collector, error) {
 	return NewCollector("../crypto.sqlite", "../apikey.txt", "https://www.alphavantage.co/query?function=DIGITAL_CURRENCY_WEEKLY&symbol=%s&market=EUR&apikey=%s", "../digital_currency_list.csv", false)
 }
 
+// Tests that we can extract the raw values from a request, for several symbols.
 func TestGetRawValuesFromSymbolAPI(t *testing.T) {
 	// var symbols = []string{"BTC", "ADA", "AIR", "ETH", "SLR"}
 	var symbols = []string{"LIMIT", "NO-SYMBOL", "ALL-GOOD"}
+	var url string
 
 	c, err := initCollector()
 	if err != nil {
@@ -52,7 +57,6 @@ func TestGetRawValuesFromSymbolAPI(t *testing.T) {
 
 	for _, symbol := range symbols {
 		t.Logf("Retrieving value for %v", symbol)
-		var url string
 		if symbol == "LIMIT" {
 			url = "datatest/limit_achieved_response.json"
 		} else if symbol == "NO-SYMBOL" {
@@ -211,6 +215,7 @@ func TestSetupDb(t *testing.T) {
 }
 
 // Tests getting valus from the JSON and store them in our CryptoDataCurated struct
+// The response here is complete, has all values, and the test should detect that too.
 func TestExtractDataFromCompleteValues(t *testing.T) {
 	// Open the JSON file.
 	jsonFile, err := os.Open("datatest/sample_response.json")
@@ -279,6 +284,7 @@ func TestExtractDataFromCompleteValues(t *testing.T) {
 	}
 }
 
+// Test that we can extract data from and detect that it was incomplete (some dates in the past are missing)
 func TestExtractDataFromIncompleteValues(t *testing.T) {
 	// Open the JSON file.
 	jsonFile, err := os.Open("datatest/non_complete_response.json")
@@ -314,6 +320,7 @@ func TestExtractDataFromIncompleteValues(t *testing.T) {
 	}
 }
 
+// Test that we can store data in the database.
 func TestStoreData(t *testing.T) {
 	c, err := initCollector()
 	if err != nil {
@@ -364,6 +371,7 @@ func TestStoreData(t *testing.T) {
 	}
 }
 
+// Mock of ReadCurrencyList, where we provide a very short list of currencies for the tests.
 func (mc MockCollector) ReadCurrencyList() ([][]string, error) {
 	return [][]string{
 		{"currency code", "currency name"},
@@ -375,11 +383,14 @@ func (mc MockCollector) ReadCurrencyList() ([][]string, error) {
 	}, nil
 }
 
+// Mock around setUpDb. We just return an empty pointer to a sql.DB, nothing else is needed.
 func (mc MockCollector) setUpDb(sqlStmt string) (*sql.DB, error) {
 	var db sql.DB
 	return &db, nil
 }
 
+// Mock around GetRawValuesFromSymbolAPI. We just return a CryptoDataRaw as if it would have been
+// retrieved from a request.
 func (mc MockCollector) GetRawValuesFromSymbolAPI(symbol string) (CryptoDataRaw, error) {
 
 	data := CryptoDataRaw{
@@ -405,23 +416,29 @@ func (mc MockCollector) GetRawValuesFromSymbolAPI(symbol string) (CryptoDataRaw,
 
 }
 
+// Mock for ExtractDataFromValues, return an empty slice of CryptoDataCurated
 func MockExtractDataFromValues(cdr CryptoDataRaw, n int, symbol string) ([]CryptoDataCurated, int, error) {
 	var cdc []CryptoDataCurated
 	return cdc, n, nil
 }
 
+// Mock for GetExtractDataFromValuesFunc. We return the function to be used in our tests.
 func (mc MockCollector) GetExtractDataFromValuesFunc() ExtractDataFromValuesFunc {
 	return MockExtractDataFromValues
 }
 
+// Mock for StoreData. Return nil error, so everything went fine (it "stored" the data properly)
 func MockStoreData(db *sql.DB, data []CryptoDataCurated, tableName string) error {
 	return nil
 }
 
+// Mock for GetStoreDataFunc. We return fhe function to be used in our tests.
 func (mc MockCollector) GetStoreDataFunc() StoreDataFunc {
 	return MockStoreData
 }
 
+// Test for the main Run function.
+// Using a Mock Collector, we run the Run function and test its result.
 func TestRun(t *testing.T) {
 
 	mc, err := NewMockCollector("../crypto.sqlite", "../apikey.txt", "https://www.alphavantage.co/query?function=DIGITAL_CURRENCY_WEEKLY&symbol=%s&market=EUR&apikey=%s", "../digital_currency_list.csv")
@@ -437,6 +454,7 @@ func TestRun(t *testing.T) {
 	}
 }
 
+// Mock around GetGetDataFunc. We return a function that reads from a JSON instead of http.Get.
 func (mc MockCollector) GetGetDataFunc() GetDataFunc {
 	return func(resource string) ([]byte, error) {
 		var response []byte

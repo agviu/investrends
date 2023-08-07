@@ -17,6 +17,7 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
+// These are possible values returned by the API.
 const (
 	allGood = iota
 	limitReached
@@ -26,7 +27,6 @@ const (
 )
 
 type CollectorInterface interface {
-	// GetRawValuesFromSymbolAPI(symbol string) (CryptoDataRaw, error)
 	ReadCurrencyList() ([][]string, error)
 	setUpDb(sqlStmt string) (*sql.DB, error)
 	GetStoreDataFunc() StoreDataFunc
@@ -53,13 +53,12 @@ type CryptoDataCurated struct {
 	value  float64
 }
 
+// Defines some function types
 type ExtractDataFromValuesFunc func(cdr CryptoDataRaw, n int, symbol string) ([]CryptoDataCurated, int, error)
-
 type StoreDataFunc func(db *sql.DB, data []CryptoDataCurated, tableName string) error
-
 type GetDataFunc func(resource string) ([]byte, error)
 
-// Configuration values for this program.
+// Collector struct defines fields for storing configuration options.
 type Collector struct {
 	DbFilePath           string
 	ApiKey               string
@@ -70,8 +69,8 @@ type Collector struct {
 }
 
 // Creates a new Collector struct.
-func NewCollector(dbFilePath string, apiKeyFilePath string, apiUrl string,
-	currencyListFilePath string, production bool) (Collector, error) {
+func NewCollector(dbFilePath string, apiKeyFilePath string, apiUrl string, currencyListFilePath string, production bool) (Collector, error) {
+	// Read the apiKey from the file where it is stored.
 	apiKey, err := getApiKey(apiKeyFilePath)
 	if err != nil {
 		var c Collector
@@ -112,7 +111,7 @@ func getData(resource string) ([]byte, error) {
 	return io.ReadAll(resp.Body)
 }
 
-// Connects to the Alpha Vantage API and gets the latest values for a given symbol.
+// Tries to get raw values from an API's response.
 func GetRawValuesFromResponse(response []byte) (CryptoDataRaw, int) {
 	var cryptoData CryptoDataRaw
 
@@ -138,6 +137,7 @@ func GetRawValuesFromResponse(response []byte) (CryptoDataRaw, int) {
 //   - Connects to API to retrieve data. It does it in a loop, 5 each time, and wait a minute
 //     This is for respect the API limit (5 requests per minute max).
 //   - Process the data, storing it in the database.
+//   - If the daily limit is reached (100 requests per day), it sleeps or finish, depends on configuration.
 func Run(c CollectorInterface, n int) error {
 
 	records, err := c.ReadCurrencyList()
@@ -149,10 +149,12 @@ func Run(c CollectorInterface, n int) error {
 	if err != nil {
 		return DbError{Msg: "Error setting up the database"}
 	}
+	defer db.Close()
 
 	index, err := readIndexFromFile("index.txt")
 	if err != nil {
 		// If the file doesn't exist yet, start from the beginning.
+		log.Printf("No index found, start from the beggining")
 		index = 0
 	}
 
@@ -160,7 +162,7 @@ func Run(c CollectorInterface, n int) error {
 
 		err = writeIndexToFile(i, "index.txt")
 		if err != nil {
-			log.Print("Failed to write index to file: ", err)
+			log.Println("Failed to write index to file: ", err)
 			return err
 		}
 
@@ -170,6 +172,7 @@ func Run(c CollectorInterface, n int) error {
 		}
 
 		if i > 0 && i%n == 0 { // Pause every n requests to comply with rate limit
+			log.Println("Sleeping a minute...")
 			time.Sleep(time.Minute)
 		}
 
@@ -178,6 +181,10 @@ func Run(c CollectorInterface, n int) error {
 		fmt.Println("Processing for ... ", symbol)
 		url := c.GetURLFromSymbol(symbol)
 		response, err := c.GetGetDataFunc()(url)
+		if err != nil {
+			log.Printf("There was an error trying to get a response from %v", url)
+			return err
+		}
 		raw, status := GetRawValuesFromResponse(response)
 		if status != allGood {
 			switch status {
@@ -270,8 +277,6 @@ func (c Collector) setUpDb(sqlStmt string) (*sql.DB, error) {
 	if err != nil {
 		return db, FileSystemError{Msg: "Error reading the database file. Is it missing?"}
 	}
-	// @todo: move this defer, out of this function
-	// defer db.Close()
 
 	if sqlStmt == "" {
 		sqlStmt = `
@@ -377,6 +382,7 @@ func StoreData(db *sql.DB, data []CryptoDataCurated, tableName string) error {
 	return nil
 }
 
+// Updates the index file
 func writeIndexToFile(i int, path string) error {
 	file, err := os.Create(path)
 	if err != nil {
@@ -392,6 +398,7 @@ func writeIndexToFile(i int, path string) error {
 	return nil
 }
 
+// Reads the value from the index
 func readIndexFromFile(path string) (int, error) {
 	file, err := os.Open(path)
 	if err != nil {
@@ -412,10 +419,12 @@ func readIndexFromFile(path string) (int, error) {
 	return i, nil
 }
 
+// Wrapper around getData, useful for Mocking in tests
 func (c Collector) GetGetDataFunc() GetDataFunc {
 	return getData
 }
 
+// Wrapper around getData, useful for Mocking in tests
 func (c Collector) isProduction() bool {
 	return c.production
 }

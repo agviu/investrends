@@ -10,6 +10,7 @@ import (
 )
 
 func main() {
+	// Declare variables that can be altered by the command line interface.
 	var dbName string
 	var apiKeyPath string
 	var production bool
@@ -19,6 +20,7 @@ func main() {
 	flag.BoolVar(&production, "prod", false, "Indicates if the program will run in production mode.")
 	flag.Parse()
 
+	// Create a collector with values passed by CLI (or default values)
 	c, err := collector.NewCollector(dbName, apiKeyPath,
 		"https://www.alphavantage.co/query?function=DIGITAL_CURRENCY_WEEKLY&symbol=%s&market=EUR&apikey=%s",
 		"digital_currency_list.csv", production)
@@ -27,15 +29,10 @@ func main() {
 		return
 	}
 
+	// Run the collector procedure.
 	err = collector.Run(c, 5)
 	if err != nil {
-		switch err.(type) {
-		// case DataError:
-		// @todo: Log stuff
-		default:
-			log.Fatal("There has been an error")
-		}
-
+		// @todo: How to return an error from the program?
 		fmt.Println("Unfortunately there was an error running the program.")
 		return
 	}
