@@ -34,6 +34,7 @@ type CollectorInterface interface {
 	GetGetDataFunc() GetDataFunc
 	GetURLFromSymbol(symbol string) string
 	isProduction() bool
+	getIndexPath() string
 }
 
 // The data as it comes from the API is stored here.
@@ -66,10 +67,11 @@ type Collector struct {
 	ApiUrl               string
 	CurrencyListFilePath string
 	production           bool
+	indexPath            string
 }
 
 // Creates a new Collector struct.
-func NewCollector(dbFilePath string, apiKeyFilePath string, apiUrl string, currencyListFilePath string, production bool) (Collector, error) {
+func NewCollector(dbFilePath string, apiKeyFilePath string, apiUrl string, currencyListFilePath string, production bool, indexPath string) (Collector, error) {
 	// Read the apiKey from the file where it is stored.
 	apiKey, err := getApiKey(apiKeyFilePath)
 	if err != nil {
@@ -83,6 +85,7 @@ func NewCollector(dbFilePath string, apiKeyFilePath string, apiUrl string, curre
 		ApiUrl:               apiUrl,
 		ApiKeyFilePath:       apiKeyFilePath,
 		production:           production,
+		indexPath:            indexPath,
 	}
 
 	return c, nil
@@ -91,6 +94,10 @@ func NewCollector(dbFilePath string, apiKeyFilePath string, apiUrl string, curre
 // wrapper around the real function, needed for tests.
 func (c Collector) GetStoreDataFunc() StoreDataFunc {
 	return StoreData
+}
+
+func (c Collector) getIndexPath() string {
+	return c.indexPath
 }
 
 // wrapper around the real function, needed for tests.
@@ -151,7 +158,7 @@ func Run(c CollectorInterface, n int) error {
 	}
 	defer db.Close()
 
-	index, err := readIndexFromFile("index.txt")
+	index, err := readIndexFromFile(c.getIndexPath())
 	if err != nil {
 		// If the file doesn't exist yet, start from the beginning.
 		log.Printf("No index found, start from the beggining")
@@ -160,7 +167,7 @@ func Run(c CollectorInterface, n int) error {
 
 	for i := index; i < len(records); i++ {
 
-		err = writeIndexToFile(i, "index.txt")
+		err = writeIndexToFile(i, c.getIndexPath())
 		if err != nil {
 			log.Println("Failed to write index to file: ", err)
 			return err
@@ -226,7 +233,7 @@ func Run(c CollectorInterface, n int) error {
 	}
 
 	// Once finished, restart the index.
-	err = writeIndexToFile(0, "index.txt")
+	err = writeIndexToFile(0, c.getIndexPath())
 	return err
 }
 

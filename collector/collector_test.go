@@ -15,7 +15,7 @@ type MockCollector struct {
 }
 
 // Return a new MockCollector object, for tests.
-func NewMockCollector(dbFilePath string, apiKeyFilePath string, apiUrl string, currencyListFilePath string) (MockCollector, error) {
+func NewMockCollector(dbFilePath string, apiKeyFilePath string, apiUrl string, currencyListFilePath string, indexPath string) (MockCollector, error) {
 	apiKey, err := getApiKey(apiKeyFilePath)
 	if err != nil {
 		var mc MockCollector
@@ -29,6 +29,7 @@ func NewMockCollector(dbFilePath string, apiKeyFilePath string, apiUrl string, c
 			CurrencyListFilePath: currencyListFilePath,
 			ApiUrl:               apiUrl,
 			ApiKeyFilePath:       apiKeyFilePath,
+			indexPath:            indexPath,
 		},
 	}
 
@@ -37,7 +38,7 @@ func NewMockCollector(dbFilePath string, apiKeyFilePath string, apiUrl string, c
 
 // Init a collector with default values useful for our tests.
 func initCollector() (Collector, error) {
-	return NewCollector("../crypto.sqlite", "../apikey.txt", "https://www.alphavantage.co/query?function=DIGITAL_CURRENCY_WEEKLY&symbol=%s&market=EUR&apikey=%s", "../digital_currency_list.csv", false)
+	return NewCollector("../crypto.sqlite", "../apikey.txt", "https://www.alphavantage.co/query?function=DIGITAL_CURRENCY_WEEKLY&symbol=%s&market=EUR&apikey=%s", "../digital_currency_list.csv", false, "index_test.txt")
 }
 
 // Tests that we can extract the raw values from a request, for several symbols.
@@ -435,7 +436,7 @@ func (mc MockCollector) GetStoreDataFunc() StoreDataFunc {
 // Using a Mock Collector, we run the Run function and test its result.
 func TestRun(t *testing.T) {
 
-	mc, err := NewMockCollector("../crypto.sqlite", "../apikey.txt", "https://www.alphavantage.co/query?function=DIGITAL_CURRENCY_WEEKLY&symbol=%s&market=EUR&apikey=%s", "../digital_currency_list.csv")
+	mc, err := NewMockCollector("../crypto.sqlite", "../apikey.txt", "https://www.alphavantage.co/query?function=DIGITAL_CURRENCY_WEEKLY&symbol=%s&market=EUR&apikey=%s", "../digital_currency_list.csv", "index_test.txt")
 	if err != nil {
 		t.Log("unable to create collector")
 		t.Fail()
