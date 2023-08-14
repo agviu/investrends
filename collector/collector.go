@@ -145,18 +145,22 @@ func GetRawValuesFromResponse(response []byte) (CryptoDataRaw, int) {
 //     This is for respect the API limit (5 requests per minute max).
 //   - Process the data, storing it in the database.
 //   - If the daily limit is reached (100 requests per day), it sleeps or finish, depends on configuration.
-func Run(c CollectorInterface, n int) error {
+func Run(c CollectorInterface, n int, clear bool) (int, error) {
 
 	records, err := c.ReadCurrencyList()
 	if err != nil {
-		return err
+		return 0, err
 	}
 
 	db, err := c.setUpDb("")
 	if err != nil {
-		return DbError{Msg: "Error setting up the database"}
+		return 0, DbError{Msg: "Error setting up the database"}
 	}
 	defer db.Close()
+	if clear {
+		log.Print("Clearing the blacklist table")
+		db.Exec("DELETE FROM blacklist")
+	}
 
 	index, err := readIndexFromFile(c.getIndexPath())
 	if err != nil {
@@ -165,12 +169,13 @@ func Run(c CollectorInterface, n int) error {
 		index = 0
 	}
 
+	processed := 0
 	for i := index; i < len(records); i++ {
 
 		err = writeIndexToFile(i, c.getIndexPath())
 		if err != nil {
 			log.Println("Failed to write index to file: ", err)
-			return err
+			return processed, err
 		}
 
 		if i == 0 {
@@ -178,19 +183,26 @@ func Run(c CollectorInterface, n int) error {
 			continue
 		}
 
-		if i > 0 && i%n == 0 { // Pause every n requests to comply with rate limit
+		if processed > 0 && processed%n == 0 { // Pause every n requests to comply with rate limit
 			log.Println("Sleeping a minute...")
 			time.Sleep(time.Minute)
 		}
 
 		symbol := string(records[i][0])
 
+		bl, _ := IsBlacklisted(db, symbol, "")
+		if bl {
+			log.Print("The symbol ", symbol, " is blacklisted. Skipping")
+			continue
+		}
+
 		fmt.Println("Processing for ... ", symbol)
+		processed++
 		url := c.GetURLFromSymbol(symbol)
 		response, err := c.GetGetDataFunc()(url)
 		if err != nil {
 			log.Printf("There was an error trying to get a response from %v", url)
-			return err
+			return processed, err
 		}
 		raw, status := GetRawValuesFromResponse(response)
 		if status != allGood {
@@ -199,6 +211,8 @@ func Run(c CollectorInterface, n int) error {
 				// The data is unreadable, but the loop can continue.
 				// Somehow the API returns Data error for certain symbols.
 				log.Printf("Data from symbol %v was not valid", symbol)
+				log.Printf("Blacklisting it...")
+				AddToBlacklist(db, symbol, "")
 			case limitReached:
 				log.Printf("Reached the limit for today.")
 				if c.isProduction() {
@@ -206,7 +220,7 @@ func Run(c CollectorInterface, n int) error {
 					time.Sleep(24 * time.Hour)
 				} else {
 					log.Printf("Finishing...")
-					return nil
+					return processed, nil
 				}
 			default:
 				log.Printf("Failed to fetch data from API: %v", err)
@@ -234,7 +248,7 @@ func Run(c CollectorInterface, n int) error {
 
 	// Once finished, restart the index.
 	err = writeIndexToFile(0, c.getIndexPath())
-	return err
+	return processed, err
 }
 
 // Returns the URL replacing the symbol in the placeholders.
@@ -294,12 +308,16 @@ func (c Collector) setUpDb(sqlStmt string) (*sql.DB, error) {
     		value REAL,
     		UNIQUE(symbol, timestamp)
 		);
+		CREATE TABLE IF NOT EXISTS blacklist (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			symbol VARCHAR(255) UNIQUE NOT NULL
+		);
 		`
 	}
 
 	_, err = db.Exec(sqlStmt)
 	if err != nil {
-		return db, DbError{Msg: "Failed to create table: " + err.Error()}
+		return db, DbError{Msg: "Failed to create tables: " + err.Error()}
 		// log.Fatalf("Failed to create table: %v", err)
 	}
 
@@ -434,4 +452,31 @@ func (c Collector) GetGetDataFunc() GetDataFunc {
 // Wrapper around getData, useful for Mocking in tests
 func (c Collector) isProduction() bool {
 	return c.production
+}
+
+func AddToBlacklist(db *sql.DB, symbol string, table string) error {
+	if table == "" {
+		table = "blacklist"
+	}
+
+	stmt, err := db.Prepare(fmt.Sprintf("INSERT OR REPLACE INTO %s(symbol) VALUES(?)", table))
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+
+	_, err = stmt.Exec(symbol)
+	return err
+}
+
+func IsBlacklisted(db *sql.DB, symbol string, table string) (bool, error) {
+	if table == "" {
+		table = "blacklist"
+	}
+	var count int
+	err := db.QueryRow(fmt.Sprintf("SELECT COUNT(*) FROM %s WHERE symbol = ?", table), symbol).Scan(&count)
+	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
 }

@@ -16,12 +16,14 @@ func main() {
 	var production bool
 	var currencyListPath string
 	var indexFilePath string
+	var clearBlacklist bool
 
 	flag.StringVar(&dbName, "db-name", "./crypto.sqlite", "Path to the sqlite database file, name icluded")
 	flag.StringVar(&apiKeyPath, "api-key-file", "apikey.txt", "Path to the text file that contains the API Key")
 	flag.StringVar(&currencyListPath, "currency-list-file", "digital_currency_list.csv", "Path to the CSV files that stores the list of currencies. Check: https://www.alphavantage.co/digital_currency_list/")
 	flag.BoolVar(&production, "prod", false, "Indicates if the program will run in production mode.")
 	flag.StringVar(&indexFilePath, "index-path", "index.txt", "Path to the text file where the index is stored.")
+	flag.BoolVar(&clearBlacklist, "clear-blacklist", false, "Clear the blacklist before starting the collection.")
 	flag.Parse()
 
 	// Create a collector with values passed by CLI (or default values)
@@ -33,10 +35,11 @@ func main() {
 	}
 
 	// Run the collector procedure.
-	err = collector.Run(c, 5)
+	processed, err := collector.Run(c, 5, clearBlacklist)
 	if err != nil {
 		log.Fatal("Unfortunately there was an error running the program.", err.Error())
 	}
 
+	fmt.Printf("Processed %v items", processed)
 	fmt.Println("Program ran succesfully.")
 }

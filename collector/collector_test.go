@@ -442,7 +442,7 @@ func TestRun(t *testing.T) {
 		t.Fail()
 	}
 
-	err = Run(mc, 10)
+	_, err = Run(mc, 10, false)
 	if err != nil {
 		t.Log("there was a problem running Run", err.Error())
 		t.Fail()
@@ -467,4 +467,66 @@ func (mc MockCollector) GetGetDataFunc() GetDataFunc {
 // Returns the URL replacing the symbol in the placeholders.
 func (mc MockCollector) GetURLFromSymbol(symbol string) string {
 	return "datatest/sample_response.json"
+}
+
+func TestBlacklist(t *testing.T) {
+	var symbols = []string{"symbol1", "symbol2", "symbol3"}
+	c, err := initCollector()
+	if err != nil {
+		t.Log("Error creating the collector", err.Error())
+		t.Fatal()
+	}
+
+	sqlStmt := `
+	CREATE TABLE IF NOT EXISTS blacklist_test (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		symbol VARCHAR(255) UNIQUE NOT NULL
+	);
+	`
+	db, err := c.setUpDb(sqlStmt)
+	if err != nil {
+		t.Log("unable to setup the db", err.Error())
+		t.Fatal()
+	}
+
+	for _, symbol := range symbols {
+		err = AddToBlacklist(db, symbol, "blacklist_test")
+		if err != nil {
+			t.Log("unable to black list the symbol", symbol, err.Error())
+			t.Fail()
+		}
+	}
+
+	err = AddToBlacklist(db, symbols[0], "blacklist_test")
+	if err != nil {
+		t.Log("unable to blacklist one symbol more than once", err.Error())
+		t.Fail()
+	}
+
+	for _, symbol := range symbols {
+		bl, err := IsBlacklisted(db, symbol, "blacklist_test")
+		if err != nil {
+			t.Log("there was an error blacklisting the symbol", symbol, err.Error())
+			t.Fail()
+		}
+		if !bl {
+			t.Log("Symbol", symbol, "should have been blacklisted")
+			t.Fail()
+		}
+	}
+
+	bl, err := IsBlacklisted(db, "NON-EXISTING", "blacklist_test")
+	if err != nil {
+		t.Log("there was an error blacklisting the symbol", "NON-EXISTING", err.Error())
+		t.Fail()
+	}
+	if bl {
+		t.Log("A non existing symbol was blacklisted, but it should not")
+		t.Fail()
+	}
+
+	defer func() {
+		t.Log("Deleting the table created for the test.")
+		db.Exec("DROP TABLE IF EXISTS blacklist_test")
+	}()
 }
