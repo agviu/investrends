@@ -381,6 +381,8 @@ func (mc MockCollector) ReadCurrencyList() ([][]string, error) {
 		{"AIR", "AIR"},
 		{"ETH", "Ethereum"},
 		{"SLR", "Solarium"},
+		{"BAND", "Band Protocol"},
+		{"BRD", "Bread"},
 	}, nil
 }
 
@@ -504,23 +506,13 @@ func TestBlacklist(t *testing.T) {
 	}
 
 	for _, symbol := range symbols {
-		bl, err := IsBlacklisted(db, symbol, "blacklist_test")
-		if err != nil {
-			t.Log("there was an error blacklisting the symbol", symbol, err.Error())
-			t.Fail()
-		}
-		if !bl {
+		if !IsBlacklisted(db, symbol, "blacklist_test") {
 			t.Log("Symbol", symbol, "should have been blacklisted")
 			t.Fail()
 		}
 	}
 
-	bl, err := IsBlacklisted(db, "NON-EXISTING", "blacklist_test")
-	if err != nil {
-		t.Log("there was an error blacklisting the symbol", "NON-EXISTING", err.Error())
-		t.Fail()
-	}
-	if bl {
+	if IsBlacklisted(db, "NON-EXISTING", "blacklist_test") {
 		t.Log("A non existing symbol was blacklisted, but it should not")
 		t.Fail()
 	}
@@ -529,4 +521,18 @@ func TestBlacklist(t *testing.T) {
 		t.Log("Deleting the table created for the test.")
 		db.Exec("DROP TABLE IF EXISTS blacklist_test")
 	}()
+}
+
+func TestRunGoRoutine(t *testing.T) {
+	mc, err := NewMockCollector("../crypto.sqlite", "../apikey.txt", "https://www.alphavantage.co/query?function=DIGITAL_CURRENCY_WEEKLY&symbol=%s&market=EUR&apikey=%s", "../digital_currency_list.csv", "index_test.txt")
+	if err != nil {
+		t.Log("unable to create collector")
+		t.Fail()
+	}
+
+	_, err = RunGoRoutines(mc, 5, false, false)
+	if err != nil {
+		t.Log("there was a problem running Run", err.Error())
+		t.Fail()
+	}
 }

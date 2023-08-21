@@ -12,6 +12,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	_ "github.com/mattn/go-sqlite3"
@@ -158,7 +159,7 @@ func Run(c CollectorInterface, n int, clear bool) (int, error) {
 	}
 	defer db.Close()
 	if clear {
-		log.Print("Clearing the blacklist table")
+		log.Println("Clearing the blacklist table")
 		db.Exec("DELETE FROM blacklist")
 	}
 
@@ -183,17 +184,16 @@ func Run(c CollectorInterface, n int, clear bool) (int, error) {
 			continue
 		}
 
-		if processed > 0 && processed%n == 0 { // Pause every n requests to comply with rate limit
-			log.Println("Sleeping a minute...")
-			time.Sleep(time.Minute)
-		}
-
 		symbol := string(records[i][0])
 
-		bl, _ := IsBlacklisted(db, symbol, "")
-		if bl {
+		if IsBlacklisted(db, symbol, "") {
 			log.Print("The symbol ", symbol, " is blacklisted. Skipping")
 			continue
+		}
+
+		if processed > 0 && processed%n == 0 { // Pause every n requests to comply with rate limit
+			log.Println("Sleeping a minute because processed is ", processed)
+			time.Sleep(time.Minute)
 		}
 
 		fmt.Println("Processing for ... ", symbol)
@@ -469,14 +469,181 @@ func AddToBlacklist(db *sql.DB, symbol string, table string) error {
 	return err
 }
 
-func IsBlacklisted(db *sql.DB, symbol string, table string) (bool, error) {
+func IsBlacklisted(db *sql.DB, symbol string, table string) bool {
 	if table == "" {
 		table = "blacklist"
 	}
 	var count int
 	err := db.QueryRow(fmt.Sprintf("SELECT COUNT(*) FROM %s WHERE symbol = ?", table), symbol).Scan(&count)
 	if err != nil {
-		return false, err
+		return false
 	}
-	return count > 0, nil
+	return count > 0
+}
+
+// Same functionality that Run function, but with goroutines
+func RunGoRoutines(c CollectorInterface, n int, clear bool, sleep bool) (int, error) {
+
+	records, err := c.ReadCurrencyList()
+	if err != nil {
+		return 0, err
+	}
+	records = records[1:]
+
+	db, err := c.setUpDb("")
+	if err != nil {
+		return 0, DbError{Msg: "Error setting up the database"}
+	}
+	defer db.Close()
+	if clear {
+		log.Println("Clearing the blacklist table")
+		db.Exec("DELETE FROM blacklist")
+	}
+
+	index, err := readIndexFromFile(c.getIndexPath())
+	if err != nil {
+		// If the file doesn't exist yet, start from the beginning.
+		log.Printf("No index found, start from the beggining")
+		index = 0
+	}
+
+	processed := 0
+
+	// Filter the records list with only the useful ones.
+	var filtered []string
+	for i := index; i < len(records); i++ {
+		if !IsBlacklisted(db, records[i][0], "") {
+			filtered = append(filtered, records[i][0])
+		}
+	}
+
+	var wg sync.WaitGroup
+	type returnData struct {
+		curatedData  []CryptoDataCurated
+		err          error
+		symbol       string
+		limitReached bool
+	}
+
+	// Create a slice of up to n elements from the filtered
+	for i := 0; i < len(filtered); i += n {
+		var end int
+		if i+n <= len(filtered) {
+			end = i + n
+		} else {
+			end = len(filtered)
+		}
+
+		goroutines := filtered[i:end]
+		returnCh := make(chan returnData, len(goroutines))
+
+		for _, symbol := range goroutines {
+			wg.Add(1)
+			processed++
+			go func(symbol string) {
+				defer wg.Done()
+				var curatedData []CryptoDataCurated
+				fmt.Println("Processing symbol...", symbol)
+				url := c.GetURLFromSymbol(symbol)
+				response, err := c.GetGetDataFunc()(url)
+				if err != nil {
+					log.Printf("There was an error trying to get a response from %v", url)
+					// return processed, err
+					returnCh <- returnData{
+						curatedData: curatedData,
+						err:         err,
+						symbol:      symbol,
+					}
+					return
+				}
+				fmt.Println(symbol, " getting response...")
+				raw, status := GetRawValuesFromResponse(response)
+				if status != allGood {
+					switch status {
+					case missingSymbol:
+						// The data is unreadable, but the loop can continue.
+						// Somehow the API returns Data error for certain symbols.
+						log.Printf("Data from symbol %v was not valid", symbol)
+						log.Printf("Blacklisting it...")
+						AddToBlacklist(db, symbol, "")
+					case limitReached:
+						log.Printf("Reached the limit for today.")
+						if c.isProduction() {
+							log.Printf("We will continue in 24 hours")
+							time.Sleep(24 * time.Hour)
+						} else {
+							log.Printf("Finishing...")
+							// return processed, nil
+							returnCh <- returnData{
+								curatedData:  curatedData,
+								err:          err,
+								limitReached: true,
+								symbol:       symbol,
+							}
+							return
+						}
+					default:
+						log.Printf("Failed to fetch data from API: %v", err)
+					}
+					return
+				}
+
+				fmt.Println(symbol, " extracting response...")
+				curatedData, extracted, err := c.GetExtractDataFromValuesFunc()(raw, 25, symbol)
+				if err != nil {
+					log.Print("Unable to extract data from raw response: ", err)
+					returnCh <- returnData{
+						curatedData: curatedData,
+						err:         err,
+						symbol:      symbol,
+					}
+					return
+				}
+				if extracted != 25 {
+					log.Printf("For symbol %v, only %v values were extracted as it was incomplete", symbol, extracted)
+				}
+				fmt.Println(symbol, " returning response...")
+				returnCh <- returnData{
+					curatedData: curatedData,
+					err:         nil,
+					symbol:      symbol,
+				}
+			}(symbol)
+		}
+		fmt.Println("Waiting for all to return")
+		go func() {
+			wg.Wait()
+			fmt.Println("All goroutines are finished, let's close the channel")
+			close(returnCh)
+		}()
+
+		for value := range returnCh {
+			fmt.Println("Value from", value.symbol, " arrived to the channel")
+			if value.err != nil {
+				fmt.Print("error returned by the goroutine", value.err.Error())
+			}
+			if value.limitReached {
+				return processed, nil
+			}
+			fmt.Println(value.symbol, "storing data...")
+			err = c.GetStoreDataFunc()(db, value.curatedData, "crypto_prices")
+			if err != nil {
+				log.Print("unable to store data in the database: ", err)
+				continue
+			}
+		}
+		fmt.Println("All routines returned")
+
+		if len(goroutines) < n {
+			// Finish!
+			break
+		}
+
+		if sleep {
+			fmt.Println("Now we sleep for a minute")
+			time.Sleep(time.Minute)
+		}
+	}
+
+	return processed, nil
 }

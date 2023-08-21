@@ -17,6 +17,7 @@ func main() {
 	var currencyListPath string
 	var indexFilePath string
 	var clearBlacklist bool
+	var goroutine bool
 
 	flag.StringVar(&dbName, "db-name", "./crypto.sqlite", "Path to the sqlite database file, name icluded")
 	flag.StringVar(&apiKeyPath, "api-key-file", "apikey.txt", "Path to the text file that contains the API Key")
@@ -24,6 +25,7 @@ func main() {
 	flag.BoolVar(&production, "prod", false, "Indicates if the program will run in production mode.")
 	flag.StringVar(&indexFilePath, "index-path", "index.txt", "Path to the text file where the index is stored.")
 	flag.BoolVar(&clearBlacklist, "clear-blacklist", false, "Clear the blacklist before starting the collection.")
+	flag.BoolVar(&goroutine, "goroutine", false, "Specify if it should use goroutines for processing.")
 	flag.Parse()
 
 	// Create a collector with values passed by CLI (or default values)
@@ -35,11 +37,17 @@ func main() {
 	}
 
 	// Run the collector procedure.
-	processed, err := collector.Run(c, 5, clearBlacklist)
+	var processed int
+	if goroutine {
+		processed, err = collector.RunGoRoutines(c, 5, clearBlacklist, true)
+	} else {
+		processed, err = collector.Run(c, 5, clearBlacklist)
+
+	}
 	if err != nil {
 		log.Fatal("Unfortunately there was an error running the program.", err.Error())
 	}
 
-	fmt.Printf("Processed %v items", processed)
+	fmt.Println("Processed", processed, "items")
 	fmt.Println("Program ran succesfully.")
 }
