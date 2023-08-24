@@ -495,9 +495,18 @@ func RunGoRoutines(c CollectorInterface, n int, clear bool, sleep bool) (int, er
 		return 0, DbError{Msg: "Error setting up the database"}
 	}
 	defer db.Close()
+
 	if clear {
 		log.Println("Clearing the blacklist table")
 		db.Exec("DELETE FROM blacklist")
+	}
+
+	// Filter the records list with only the useful ones.
+	var filtered []string
+	for i := 0; i < len(records); i++ {
+		if !IsBlacklisted(db, records[i][0], "") {
+			filtered = append(filtered, records[i][0])
+		}
 	}
 
 	index, err := readIndexFromFile(c.getIndexPath())
@@ -509,14 +518,6 @@ func RunGoRoutines(c CollectorInterface, n int, clear bool, sleep bool) (int, er
 
 	processed := 0
 
-	// Filter the records list with only the useful ones.
-	var filtered []string
-	for i := index; i < len(records); i++ {
-		if !IsBlacklisted(db, records[i][0], "") {
-			filtered = append(filtered, records[i][0])
-		}
-	}
-
 	var wg sync.WaitGroup
 	type returnData struct {
 		curatedData  []CryptoDataCurated
@@ -526,12 +527,18 @@ func RunGoRoutines(c CollectorInterface, n int, clear bool, sleep bool) (int, er
 	}
 
 	// Create a slice of up to n elements from the filtered
-	for i := 0; i < len(filtered); i += n {
+	for i := index; i < len(filtered); i += n {
 		var end int
 		if i+n <= len(filtered) {
 			end = i + n
 		} else {
 			end = len(filtered)
+		}
+
+		err = writeIndexToFile(i, c.getIndexPath())
+		if err != nil {
+			log.Println("Failed to write index to file: ", err)
+			return processed, err
 		}
 
 		goroutines := filtered[i:end]
@@ -613,7 +620,7 @@ func RunGoRoutines(c CollectorInterface, n int, clear bool, sleep bool) (int, er
 		fmt.Println("Waiting for all to return")
 		go func() {
 			wg.Wait()
-			fmt.Println("All goroutines are finished, let's close the channel")
+			fmt.Println("All goroutines have finished, let's close the channel")
 			close(returnCh)
 		}()
 
@@ -645,5 +652,7 @@ func RunGoRoutines(c CollectorInterface, n int, clear bool, sleep bool) (int, er
 		}
 	}
 
-	return processed, nil
+	// Restart the index.
+	err = writeIndexToFile(0, c.getIndexPath())
+	return processed, err
 }
