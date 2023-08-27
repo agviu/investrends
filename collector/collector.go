@@ -7,7 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"strconv"
@@ -159,14 +159,14 @@ func Run(c CollectorInterface, n int, clear bool) (int, error) {
 	}
 	defer db.Close()
 	if clear {
-		log.Println("Clearing the blacklist table")
+		slog.Info("Clearing the blacklist table")
 		db.Exec("DELETE FROM blacklist")
 	}
 
 	index, err := readIndexFromFile(c.getIndexPath())
 	if err != nil {
 		// If the file doesn't exist yet, start from the beginning.
-		log.Printf("No index found, start from the beggining")
+		slog.Info("No index found, start from the beggining")
 		index = 0
 	}
 
@@ -175,7 +175,7 @@ func Run(c CollectorInterface, n int, clear bool) (int, error) {
 
 		err = writeIndexToFile(i, c.getIndexPath())
 		if err != nil {
-			log.Println("Failed to write index to file: ", err)
+			slog.Error("Failed to write index to file: ", "err", err.Error())
 			return processed, err
 		}
 
@@ -187,21 +187,22 @@ func Run(c CollectorInterface, n int, clear bool) (int, error) {
 		symbol := string(records[i][0])
 
 		if IsBlacklisted(db, symbol, "") {
-			log.Print("The symbol ", symbol, " is blacklisted. Skipping")
+			slog.Info(symbol + " is blacklisted. Skipping...")
 			continue
 		}
 
-		if processed > 0 && processed%n == 0 { // Pause every n requests to comply with rate limit
-			log.Println("Sleeping a minute because processed is ", processed)
+		if processed > 0 && processed%n == 0 {
+			// Pause every n requests to comply with rate limit
+			slog.Info("Sleeping a minute", "processed", processed)
 			time.Sleep(time.Minute)
 		}
 
-		fmt.Println("Processing for ... ", symbol)
+		slog.Info(symbol + " is processing")
 		processed++
 		url := c.GetURLFromSymbol(symbol)
 		response, err := c.GetGetDataFunc()(url)
 		if err != nil {
-			log.Printf("There was an error trying to get a response from %v", url)
+			slog.Error("There was an error trying to get a response", "url", url)
 			return processed, err
 		}
 		raw, status := GetRawValuesFromResponse(response)
@@ -210,40 +211,39 @@ func Run(c CollectorInterface, n int, clear bool) (int, error) {
 			case missingSymbol:
 				// The data is unreadable, but the loop can continue.
 				// Somehow the API returns Data error for certain symbols.
-				log.Printf("Data from symbol %v was not valid", symbol)
-				log.Printf("Blacklisting it...")
+				slog.Warn(symbol + "'s data was not valid. Blacklisting it...")
 				AddToBlacklist(db, symbol, "")
 			case limitReached:
-				log.Printf("Reached the limit for today.")
+				slog.Info("Reached the limit for today.")
 				if c.isProduction() {
-					log.Printf("We will continue in 24 hours")
+					slog.Info("We will continue in 24 hours")
 					time.Sleep(24 * time.Hour)
 				} else {
-					log.Printf("Finishing...")
+					slog.Info("Finishing...")
 					return processed, nil
 				}
 			default:
-				log.Printf("Failed to fetch data from API: %v", err)
+				slog.Error("Failed to fetch data from API", "err", err.Error())
 			}
 			continue
 		}
 
 		curatedData, extracted, err := c.GetExtractDataFromValuesFunc()(raw, 25, symbol)
 		if err != nil {
-			log.Print("Unable to extract data from raw response: ", err)
+			slog.Warn("Unable to extract data from raw response", "err", err.Error())
 			continue
 		}
 		if extracted != 25 {
-			log.Printf("For symbol %v, only %v values were extracted as it was incomplete", symbol, extracted)
+			slog.Warn(symbol+" Response was incomplete", "extracted", extracted)
 		}
 
 		err = c.GetStoreDataFunc()(db, curatedData, "crypto_prices")
 		if err != nil {
-			log.Print("unable to store data in the database: ", err)
+			slog.Error("unable to store data in the database: ", "err", err.Error())
 			continue
 		}
 
-		fmt.Println(" DONE.")
+		slog.Info(symbol + " DONE.")
 	}
 
 	// Once finished, restart the index.
@@ -382,28 +382,27 @@ func StoreData(db *sql.DB, data []CryptoDataCurated, tableName string) error {
 	// Store data in SQLite database
 	tx, err := db.Begin()
 	if err != nil {
-		log.Fatalf("Failed to begin transaction: %v", err)
+		slog.Error("Failed to begin transaction", "err", err.Error())
 	}
 	insertQuery := "INSERT OR IGNORE INTO " + tableName + "(symbol, timestamp, value) values(?, ?, ?)"
 	stmt, err := tx.Prepare(insertQuery)
 	if err != nil {
-		log.Fatalf("Failed to prepare statement: %v", err)
+		slog.Error("Failed to prepare statement", "err", err.Error())
 	}
 	defer stmt.Close()
 
 	for _, curated := range data {
 		_, err = stmt.Exec(curated.symbol, curated.date, curated.value)
 		if err != nil {
-			log.Fatalf("Failed to insert data into table: %v", err)
+			slog.Error("Failed to insert data into table", "err", err.Error())
 			return err
 		}
 	}
 
 	if err := tx.Commit(); err != nil {
-		log.Fatalf("Failed to commit transaction: %v", err)
+		slog.Error("Failed to commit transaction", "err", err.Error())
 		return err
 	}
-
 	return nil
 }
 
@@ -497,7 +496,7 @@ func RunGoRoutines(c CollectorInterface, n int, clear bool, sleep bool) (int, er
 	defer db.Close()
 
 	if clear {
-		log.Println("Clearing the blacklist table")
+		slog.Info("Clearing the blacklist table")
 		db.Exec("DELETE FROM blacklist")
 	}
 
@@ -512,7 +511,7 @@ func RunGoRoutines(c CollectorInterface, n int, clear bool, sleep bool) (int, er
 	index, err := readIndexFromFile(c.getIndexPath())
 	if err != nil {
 		// If the file doesn't exist yet, start from the beginning.
-		log.Printf("No index found, start from the beggining")
+		slog.Info("No index found, start from the beggining")
 		index = 0
 	}
 
@@ -537,7 +536,7 @@ func RunGoRoutines(c CollectorInterface, n int, clear bool, sleep bool) (int, er
 
 		err = writeIndexToFile(i, c.getIndexPath())
 		if err != nil {
-			log.Println("Failed to write index to file: ", err)
+			slog.Error("Failed to write index to file", "err", err.Error())
 			return processed, err
 		}
 
@@ -550,12 +549,11 @@ func RunGoRoutines(c CollectorInterface, n int, clear bool, sleep bool) (int, er
 			go func(symbol string) {
 				defer wg.Done()
 				var curatedData []CryptoDataCurated
-				fmt.Println("Processing symbol...", symbol)
+				slog.Info(symbol + " processing...")
 				url := c.GetURLFromSymbol(symbol)
 				response, err := c.GetGetDataFunc()(url)
 				if err != nil {
-					log.Printf("There was an error trying to get a response from %v", url)
-					// return processed, err
+					slog.Error("There was an error trying to get a response from ", "url", url)
 					returnCh <- returnData{
 						curatedData: curatedData,
 						err:         err,
@@ -563,24 +561,22 @@ func RunGoRoutines(c CollectorInterface, n int, clear bool, sleep bool) (int, er
 					}
 					return
 				}
-				fmt.Println(symbol, " getting response...")
+				slog.Info(symbol + " getting response...")
 				raw, status := GetRawValuesFromResponse(response)
 				if status != allGood {
 					switch status {
 					case missingSymbol:
 						// The data is unreadable, but the loop can continue.
 						// Somehow the API returns Data error for certain symbols.
-						log.Printf("Data from symbol %v was not valid", symbol)
-						log.Printf("Blacklisting it...")
+						slog.Warn(symbol + "'s data was not valid. Blacklisting it...")
 						AddToBlacklist(db, symbol, "")
 					case limitReached:
-						log.Printf("Reached the limit for today.")
+						slog.Info("Reached the limit for today.")
 						if c.isProduction() {
-							log.Printf("We will continue in 24 hours")
+							slog.Info("We will continue in 24 hours")
 							time.Sleep(24 * time.Hour)
 						} else {
-							log.Printf("Finishing...")
-							// return processed, nil
+							slog.Info(symbol + " Finishing...")
 							returnCh <- returnData{
 								curatedData:  curatedData,
 								err:          err,
@@ -590,15 +586,15 @@ func RunGoRoutines(c CollectorInterface, n int, clear bool, sleep bool) (int, er
 							return
 						}
 					default:
-						log.Printf("Failed to fetch data from API: %v", err)
+						slog.Error("Failed to fetch data from API", "err", err.Error())
 					}
 					return
 				}
 
-				fmt.Println(symbol, " extracting response...")
+				slog.Info(symbol + " extracting response...")
 				curatedData, extracted, err := c.GetExtractDataFromValuesFunc()(raw, 25, symbol)
 				if err != nil {
-					log.Print("Unable to extract data from raw response: ", err)
+					slog.Error("Unable to extract data from raw response", "err", err.Error())
 					returnCh <- returnData{
 						curatedData: curatedData,
 						err:         err,
@@ -607,9 +603,9 @@ func RunGoRoutines(c CollectorInterface, n int, clear bool, sleep bool) (int, er
 					return
 				}
 				if extracted != 25 {
-					log.Printf("For symbol %v, only %v values were extracted as it was incomplete", symbol, extracted)
+					slog.Warn(symbol+" Response was incomplete", "extracted", extracted)
 				}
-				fmt.Println(symbol, " returning response...")
+				slog.Info(symbol + " returning response to main goroutine...")
 				returnCh <- returnData{
 					curatedData: curatedData,
 					err:         nil,
@@ -617,29 +613,29 @@ func RunGoRoutines(c CollectorInterface, n int, clear bool, sleep bool) (int, er
 				}
 			}(symbol)
 		}
-		fmt.Println("Waiting for all to return")
+		slog.Info("Waiting return from all goroutines...")
 		go func() {
 			wg.Wait()
-			fmt.Println("All goroutines have finished, let's close the channel")
+			slog.Info("All goroutines have finished, closing the channel...")
 			close(returnCh)
 		}()
 
 		for value := range returnCh {
-			fmt.Println("Value from", value.symbol, " arrived to the channel")
+			slog.Info(value.symbol + " value arrived to the channel")
 			if value.err != nil {
-				fmt.Print("error returned by the goroutine", value.err.Error())
+				slog.Error(" returned by the goroutine", "err", value.err.Error())
 			}
 			if value.limitReached {
 				return processed, nil
 			}
-			fmt.Println(value.symbol, "storing data...")
+			slog.Info(value.symbol + " storing data in the database...")
 			err = c.GetStoreDataFunc()(db, value.curatedData, "crypto_prices")
 			if err != nil {
-				log.Print("unable to store data in the database: ", err)
+				slog.Error(value.symbol+" unable to store data in the database", "err", err.Error())
 				continue
 			}
 		}
-		fmt.Println("All routines returned")
+		slog.Info("All goroutines processed.")
 
 		if len(goroutines) < n {
 			// Finish!
@@ -647,7 +643,7 @@ func RunGoRoutines(c CollectorInterface, n int, clear bool, sleep bool) (int, er
 		}
 
 		if sleep {
-			fmt.Println("Now we sleep for a minute")
+			slog.Info("Now we sleep for a minute...")
 			time.Sleep(time.Minute)
 		}
 	}

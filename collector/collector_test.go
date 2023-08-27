@@ -4,7 +4,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"io"
-	"log"
 	"os"
 	"testing"
 )
@@ -221,14 +220,16 @@ func TestExtractDataFromCompleteValues(t *testing.T) {
 	// Open the JSON file.
 	jsonFile, err := os.Open("datatest/sample_response.json")
 	if err != nil {
-		log.Fatal(err)
+		t.Log("Error while opening the json File:", err.Error())
+		t.FailNow()
 	}
 	defer jsonFile.Close()
 
 	// Read the file into a byte slice.
 	byteValue, err := io.ReadAll(jsonFile)
 	if err != nil {
-		log.Fatal(err)
+		t.Log("Error while reading the json File:", err.Error())
+		t.FailNow()
 	}
 
 	// Create a map to hold the JSON data.
@@ -290,14 +291,16 @@ func TestExtractDataFromIncompleteValues(t *testing.T) {
 	// Open the JSON file.
 	jsonFile, err := os.Open("datatest/non_complete_response.json")
 	if err != nil {
-		log.Fatal(err)
+		t.Log("Error while opening the json File:", err.Error())
+		t.FailNow()
 	}
 	defer jsonFile.Close()
 
 	// Read the file into a byte slice.
 	byteValue, err := io.ReadAll(jsonFile)
 	if err != nil {
-		log.Fatal(err)
+		t.Log("Error while reading the json File:", err.Error())
+		t.FailNow()
 	}
 
 	// Create a map to hold the JSON data.

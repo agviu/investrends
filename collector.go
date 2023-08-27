@@ -2,7 +2,6 @@ package main
 
 import (
 	"flag"
-	"fmt"
 	"log"
 
 	"github.com/agviu/investrends/collector"
@@ -33,7 +32,7 @@ func main() {
 		"https://www.alphavantage.co/query?function=DIGITAL_CURRENCY_WEEKLY&symbol=%s&market=EUR&apikey=%s",
 		currencyListPath, production, indexFilePath)
 	if err != nil {
-		log.Fatal("unable to create collector object: ", err.Error())
+		log.Fatalln("unable to create collector object: ", err.Error())
 	}
 
 	// Run the collector procedure.
@@ -48,6 +47,6 @@ func main() {
 		log.Fatal("Unfortunately there was an error running the program.", err.Error())
 	}
 
-	fmt.Println("Processed", processed, "items")
-	fmt.Println("Program ran succesfully.")
+	log.Println("Processed", processed, "items")
+	log.Println("Program ran succesfully.")
 }
