@@ -187,7 +187,7 @@ func Run(c CollectorInterface, n int, clear bool) (int, error) {
 		symbol := string(records[i][0])
 
 		if IsBlacklisted(db, symbol, "") {
-			slog.Info(symbol + " is blacklisted. Skipping...")
+			slog.Debug(symbol + " is blacklisted. Skipping...")
 			continue
 		}
 
@@ -561,7 +561,7 @@ func RunGoRoutines(c CollectorInterface, n int, clear bool, sleep bool) (int, er
 					}
 					return
 				}
-				slog.Info(symbol + " getting response...")
+				slog.Debug(symbol + " getting response...")
 				raw, status := GetRawValuesFromResponse(response)
 				if status != allGood {
 					switch status {
@@ -591,7 +591,7 @@ func RunGoRoutines(c CollectorInterface, n int, clear bool, sleep bool) (int, er
 					return
 				}
 
-				slog.Info(symbol + " extracting response...")
+				slog.Debug(symbol + " extracting response...")
 				curatedData, extracted, err := c.GetExtractDataFromValuesFunc()(raw, 25, symbol)
 				if err != nil {
 					slog.Error("Unable to extract data from raw response", "err", err.Error())
@@ -605,37 +605,38 @@ func RunGoRoutines(c CollectorInterface, n int, clear bool, sleep bool) (int, er
 				if extracted != 25 {
 					slog.Warn(symbol+" Response was incomplete", "extracted", extracted)
 				}
-				slog.Info(symbol + " returning response to main goroutine...")
+				slog.Debug(symbol + " returning response to main goroutine...")
 				returnCh <- returnData{
 					curatedData: curatedData,
 					err:         nil,
 					symbol:      symbol,
 				}
+				slog.Info(symbol + " DONE.")
 			}(symbol)
 		}
-		slog.Info("Waiting return from all goroutines...")
+		slog.Debug("Waiting return from all goroutines...")
 		go func() {
 			wg.Wait()
-			slog.Info("All goroutines have finished, closing the channel...")
+			slog.Debug("All goroutines have finished, closing the channel...")
 			close(returnCh)
 		}()
 
 		for value := range returnCh {
-			slog.Info(value.symbol + " value arrived to the channel")
+			slog.Debug(value.symbol + " value arrived to the channel")
 			if value.err != nil {
 				slog.Error(" returned by the goroutine", "err", value.err.Error())
 			}
 			if value.limitReached {
 				return processed, nil
 			}
-			slog.Info(value.symbol + " storing data in the database...")
+			slog.Debug(value.symbol + " storing data in the database...")
 			err = c.GetStoreDataFunc()(db, value.curatedData, "crypto_prices")
 			if err != nil {
 				slog.Error(value.symbol+" unable to store data in the database", "err", err.Error())
 				continue
 			}
 		}
-		slog.Info("All goroutines processed.")
+		slog.Debug("All goroutines processed.")
 
 		if len(goroutines) < n {
 			// Finish!
