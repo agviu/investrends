@@ -29,6 +29,7 @@ to quickly create a Cobra application.`,
 		var indexFilePath string
 		var clearBlacklist bool
 		var goroutine bool
+
 		dbName, _ = cmd.Flags().GetString("db-name")
 		apiKeyPath, _ = cmd.Flags().GetString("api-key-file")
 		currencyListPath, _ = cmd.Flags().GetString("currency-list-file")
@@ -51,7 +52,6 @@ to quickly create a Cobra application.`,
 			processed, err = collector.RunGoRoutines(c, 5, clearBlacklist, true)
 		} else {
 			processed, err = collector.Run(c, 5, clearBlacklist)
-
 		}
 		if err != nil {
 			log.Fatal("Unfortunately there was an error running the program.", err.Error())
