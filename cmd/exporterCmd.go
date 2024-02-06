@@ -2,22 +2,31 @@ package cmd
 
 import (
 	"fmt"
+	"log"
 
+	"github.com/agviu/investrends/exporter"
 	"github.com/spf13/cobra"
 )
+
+// Define variables to hold the flag values
+var dbName string
+var jsonOutputPath string
 
 // exporterCmd represents the exporter command
 var exporterCmd = &cobra.Command{
 	Use:   "exporter",
-	Short: "A brief description of your command",
-	Long: `A longer description that spans multiple lines and likely contains examples
-and usage of using your command. For example:
-
-Cobra is a CLI library for Go that empowers applications.
-This application is a tool to generate the needed files
-to quickly create a Cobra application.`,
+	Short: "Exports data from a SQLite database to a JSON file",
+	Long: `exporter is a command-line utility that exports data from a specified SQLite database file
+to a JSON file. It requires two arguments: the path to the SQLite file and the path for the output JSON file.`,
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("exporter called")
+
+		// Call the ExportToJSON function with the provided arguments
+		err := exporter.ExportToJSON(dbName, jsonOutputPath)
+		if err != nil {
+			log.Fatalf("Failed to export data: %v", err)
+		}
+
+		fmt.Printf("Data exported successfully from '%s' to '%s'\n", dbName, jsonOutputPath)
 	},
 }
 
@@ -26,11 +35,11 @@ func init() {
 
 	// Here you will define your flags and configuration settings.
 
-	// Cobra supports Persistent Flags which will work for this command
-	// and all subcommands, e.g.:
-	// exporterCmd.PersistentFlags().String("foo", "", "A help for foo")
+	// Define the named flags for the exporterCmd
+	exporterCmd.Flags().StringVarP(&dbName, "db-name", "d", "", "Path to the sqlite database file")
+	exporterCmd.Flags().StringVarP(&jsonOutputPath, "json", "j", "", "Path to the output JSON file")
 
-	// Cobra supports local flags which will only run when this command
-	// is called directly, e.g.:
-	// exporterCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
+	// Mark the flags as required
+	exporterCmd.MarkFlagRequired("db-name")
+	exporterCmd.MarkFlagRequired("json")
 }

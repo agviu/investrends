@@ -7,7 +7,6 @@ import (
 )
 
 // Assuming ExportToJSON, timestampToYearWeek, and other necessary functions are correctly implemented
-
 func TestExportToJSON(t *testing.T) {
 	// Temporary output file for testing
 	outputPath := "../test_output.json"
